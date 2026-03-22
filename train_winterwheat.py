@@ -19,7 +19,6 @@ from pcse_gym.envs.constraints import ActionConstrainer
 from pcse_gym.envs.winterwheat import WinterWheat
 from pcse_gym.envs.sb3 import get_policy_kwargs, get_model_kwargs
 from pcse_gym.utils.eval import EvalCallback, determine_and_log_optimum
-from pcse_gym.utils.normalization import VecNormalizePO
 import pcse_gym.utils.defaults as defaults
 from pcse_gym.agent.masked_actorcriticpolicy import MaskedRecurrentActorCriticPolicy, MaskedActorCriticPolicy
 # from pcse_gym.agent.ppo_mod import RegPPO
