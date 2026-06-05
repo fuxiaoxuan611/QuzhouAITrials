@@ -8,7 +8,7 @@ import pcse_gym.envs.common_env as common_env
 import pcse_gym.utils.defaults as defaults
 import pcse_gym.utils.process_pcse_output as process_pcse
 from pcse_gym.utils.nitrogen_helpers import convert_year_to_n_concentration
-from .sb3 import ZeroNitrogenEnvStorage, StableBaselinesWrapper
+from .sb3 import PotentialProductionEnvStorage, StableBaselinesWrapper, ZeroNitrogenEnvStorage, weather_observation_timesteps
 from .rewards import Rewards, ActionsContainer
 from .rewards import reward_functions_with_baseline, reward_functions_end, calculate_nue
 from pcse_gym.utils.nitrogen_helpers import get_surplus_n, get_nh4_deposition_pcse, get_no3_deposition_pcse
@@ -51,6 +51,10 @@ class WinterWheat(gym.Env):
         self.measure_cost_multiplier = kwargs.get('m_multiplier', 1)
         self.measure_all = kwargs.get('measure_all', False)
         self.random_weather = kwargs.get('random_weather', False)
+        self.weather_provider = kwargs.get('weather_provider')
+        self.openmeteo_kwargs = kwargs.get('openmeteo_kwargs', {})
+        self.potential_fertilizer_action = kwargs.get('potential_fertilizer_action')
+        self.potential_unbounded_box_action = kwargs.get('potential_unbounded_box_action', 100.0)
         self.start_type = kwargs.get('start_type')
         self.list_wav_nav = None
         self.eval_nh4i = None
@@ -82,11 +86,18 @@ class WinterWheat(gym.Env):
         """ Initialize SB3 env wrapper """
 
         if self.reward_function in reward_functions_with_baseline():
-            self._env_baseline = self._initialize_sb_wrapper(seed, *args, **kwargs)
+            reference_timestep = 1 if self.reward_function == 'POT' else None
+            self._env_baseline = self._initialize_sb_wrapper(
+                seed, *args, timestep=reference_timestep, **kwargs
+            )
         self._env = self._initialize_sb_wrapper(seed, *args, **kwargs)
 
         self.observation_space = self._get_observation_space()
         self.zero_nitrogen_env_storage = ZeroNitrogenEnvStorage()
+        self.potential_production_env_storage = PotentialProductionEnvStorage(
+            fertilizer_action=self.potential_fertilizer_action,
+            unbounded_box_action=self.potential_unbounded_box_action,
+        )
 
         """ Get number of soil layers if using WOFOST snomin"""
         self.mean_total_N = None
@@ -139,6 +150,9 @@ class WinterWheat(gym.Env):
         elif self.reward_function == 'DEF':
             self.reward_class = self.rewards_obj.DEF(self.timestep, costs_nitrogen)
 
+        elif self.reward_function == 'POT':
+            self.reward_class = self.rewards_obj.POT(self.timestep, costs_nitrogen)
+
         elif self.reward_function == 'GRO':
             self.reward_class = self.rewards_obj.GRO(self.timestep, costs_nitrogen)
 
@@ -181,12 +195,12 @@ class WinterWheat(gym.Env):
         else:
             raise Exception('please choose valid reward function')
 
-    def _initialize_sb_wrapper(self, seed, *args, **kwargs):
+    def _initialize_sb_wrapper(self, seed, *args, timestep=None, **kwargs):
         return StableBaselinesWrapper(crop_features=self.crop_features,
                                       action_features=self.action_features,
                                       weather_features=self.weather_features,
                                       costs_nitrogen=self.costs_nitrogen,
-                                      timestep=self.timestep,
+                                      timestep=self.timestep if timestep is None else timestep,
                                       years=self.years[0], location=self.locations[0],
                                       action_space=self.action_space,
                                       action_multiplier=self.action_multiplier,
@@ -201,7 +215,11 @@ class WinterWheat(gym.Env):
         if self.sb3_env.no_weather:
             nvars = len(self.crop_features)
         else:
-            nvars = len(self.crop_features) + len(self.action_features) + len(self.weather_features) * self.timestep
+            nvars = (
+                len(self.crop_features)
+                + len(self.action_features)
+                + len(self.weather_features) * weather_observation_timesteps(self.timestep)
+            )
         if self.mask_binary:  # TODO: test with weather features
             nvars = nvars + len(self.po_features)
         return nvars
@@ -212,6 +230,7 @@ class WinterWheat(gym.Env):
         """
 
         # advance one step of the PCSEEngine wrapper and apply action(s)
+        previous_date = self.sb3_env.date
         obs, _, terminated, truncated, info = self.sb3_env.step(action)
 
         # Only relevant for invalid action masking
@@ -221,7 +240,7 @@ class WinterWheat(gym.Env):
         output = self.sb3_env.model.get_output()
 
         # process output to get observation, reward and growth of winterwheat
-        obs, reward, growth = self.process_output(action, output, obs, terminated)
+        obs, reward, growth = self.process_output(action, output, obs, terminated, previous_date=previous_date)
 
         # normalize observations and reward if not using VecNormalize wrapper
         if self.normalize:
@@ -236,14 +255,14 @@ class WinterWheat(gym.Env):
 
         return obs, reward, terminated, truncated, info
 
-    def process_output(self, action, output, obs, terminated):
+    def process_output(self, action, output, obs, terminated, previous_date=None):
 
         if self.po_features and isinstance(action, np.ndarray) and action.dtype != np.float32:
             measure = None
             if isinstance(action, np.ndarray):
                 action, measure = action[0], action[1:]
             amount = action * self.action_multiplier
-            reward, growth = self.get_reward_and_growth(output, amount, terminated)
+            reward, growth = self.get_reward_and_growth(output, amount, terminated, previous_date=previous_date)
             obs, cost = self.measure_features.measure_act(obs, measure)
             measurement_cost = sum(cost)
             # if self.reward_function in reward_functions_end() and self.reward_function == 'NUE':
@@ -254,25 +273,32 @@ class WinterWheat(gym.Env):
             if isinstance(action, np.ndarray):
                 action = action.item()
             amount = action * self.action_multiplier
-            reward, growth = self.get_reward_and_growth(output, amount, terminated)
+            reward, growth = self.get_reward_and_growth(output, amount, terminated, previous_date=previous_date)
             return obs, reward, growth
 
-    def get_reward_and_growth(self, output, amount, terminated):
+    def get_reward_and_growth(self, output, amount, terminated, previous_date=None):
         output_baseline = []
         if self.reward_function in reward_functions_with_baseline():
-            zero_nitrogen_results = self.zero_nitrogen_env_storage.get_episode_output(self.baseline_env)
-            # convert zero_nitrogen_results to pcse_output
-            var_name = process_pcse.get_name_storage_organ(zero_nitrogen_results.keys())
-            for (k, v) in zero_nitrogen_results[var_name].items():
+            if self.reward_function == 'POT':
+                reference_results = self.potential_production_env_storage.get_episode_output(self.baseline_env)
+            else:
+                reference_results = self.zero_nitrogen_env_storage.get_episode_output(self.baseline_env)
+            # convert reference results to pcse_output
+            var_name = process_pcse.get_name_storage_organ(reference_results.keys())
+            for (k, v) in reference_results[var_name].items():
                 if k <= output[-1]['day']:
                     filtered_dict = {'day': k, var_name: v}
                     output_baseline.append(filtered_dict)
             assert len(output_baseline) != 0, f'OUTPUT BASELINE EMPTY'
 
-        reward, growth = self.reward_class.return_reward(output, amount,
-                                                         output_baseline=output_baseline,
-                                                         multiplier=self.sb3_env.multiplier_amount,
-                                                         obj=self.reward_container)
+        reward_kwargs = {
+            "output_baseline": output_baseline,
+            "multiplier": self.sb3_env.multiplier_amount,
+            "obj": self.reward_container,
+        }
+        if self.reward_function in ['DEF', 'POT']:
+            reward_kwargs["previous_date"] = previous_date
+        reward, growth = self.reward_class.return_reward(output, amount, **reward_kwargs)
         self.rewards_obj.update_profit(output, amount, year=self.sb3_env.date.year,
                                        multiplier=self.sb3_env.multiplier_amount)
         reward += self.terminate_reward_signal(output, reward, terminated)
@@ -280,19 +306,19 @@ class WinterWheat(gym.Env):
 
     def terminate_reward_signal(self, output, reward, terminated):
         if terminated and self.reward_function in reward_functions_end():
-            reward = self.reward_container.dump_cumulative_positive_reward - abs(reward)
+            return self.reward_container.dump_cumulative_positive_reward - abs(reward)
 
         elif terminated and self.reward_function == 'HAR':
-            reward = self.yield_modifier * self.reward_container.dump_cumulative_positive_reward - abs(reward)
+            return self.yield_modifier * self.reward_container.dump_cumulative_positive_reward - abs(reward)
 
         elif terminated and self.reward_function in ['NUE', 'DNE']:
-            reward = (self.reward_container.calculate_reward_nue(
+            return (self.reward_container.calculate_reward_nue(
                 n_fertilized=self.reward_container.get_total_fertilization * 10,
                 n_output=process_pcse.get_n_storage_organ(output),
                 no3_depo=get_no3_deposition_pcse(output),
                 nh4_depo=get_nh4_deposition_pcse(output),)
             )
-        return reward
+        return 0
 
     def grab_infos(self, output, info, reward, growth):
         # fill in infos
@@ -333,6 +359,8 @@ class WinterWheat(gym.Env):
 
     def overwrite_year(self, year):
         self.years = year
+        if self.sb3_env.preserve_agro_dates:
+            return
         if self.reward_function in reward_functions_with_baseline():
             self.baseline_env.agro_management = self.sb3_env.agmt.replace_years(year)
         self.sb3_env.agro_management = self.sb3_env.agmt.replace_years(year)
@@ -341,10 +369,20 @@ class WinterWheat(gym.Env):
         if self.reward_function in reward_functions_with_baseline():
             self.baseline_env.loc = location
             self.baseline_env.weather_data_provider = (
-                common_env.get_weather_data_provider(location, random_weather=self.random_weather))
+                common_env.get_weather_data_provider(
+                    location,
+                    random_weather=self.random_weather,
+                    weather_provider=self.weather_provider,
+                    openmeteo_kwargs=self.openmeteo_kwargs,
+                ))
         self.sb3_env.loc = location
         self.sb3_env.weather_data_provider = (
-            common_env.get_weather_data_provider(location, random_weather=self.random_weather))
+            common_env.get_weather_data_provider(
+                location,
+                random_weather=self.random_weather,
+                weather_provider=self.weather_provider,
+                openmeteo_kwargs=self.openmeteo_kwargs,
+            ))
 
     def overwrite_location(self, location):
         self.locations = location
@@ -442,7 +480,7 @@ class WinterWheat(gym.Env):
         if isinstance(options, dict):
             site_params = self.special_init_conditions() | options
 
-        if isinstance(self.years, list):
+        if isinstance(self.years, list) and not self.sb3_env.preserve_agro_dates:
             year = self.np_random.choice(self.years)
             if self.reward_function in reward_functions_with_baseline():
                 self.baseline_env.agro_management = self.sb3_env.agmt.replace_years(year)

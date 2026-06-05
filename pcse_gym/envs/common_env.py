@@ -9,6 +9,7 @@ import yaml
 import gymnasium as gym
 
 import pcse
+import pcse.input
 
 """
     Gymnasium Environment built around the PCSE library for crop simulation
@@ -31,24 +32,28 @@ class AgroManagementContainer:
         self.crop_end_date: datetime.date = agro_management[0][self.campaign_date]['CropCalendar']['crop_end_date']
         self.crop_end_type: str = agro_management[0][self.campaign_date]['CropCalendar']['crop_end_type']
         self.max_duration: int = agro_management[0][self.campaign_date]['CropCalendar']['max_duration']
+        self.timed_events = copy.deepcopy(agro_management[0][self.campaign_date].get('TimedEvents'))
+        self.state_events = copy.deepcopy(agro_management[0][self.campaign_date].get('StateEvents'))
 
         self.structure = None
         self.build_structure()
 
     def build_structure(self):
-        self.structure = yaml.load(f'''
-                    - {self.campaign_date}:
-                        CropCalendar:
-                            crop_name: {self.crop_name}
-                            variety_name: {self.crop_variety}
-                            crop_start_date: {self.crop_start_date}
-                            crop_start_type: {self.crop_start_type}
-                            crop_end_date: {self.crop_end_date}
-                            crop_end_type: {self.crop_end_type}
-                            max_duration: {self.max_duration}
-                        TimedEvents: null
-                        StateEvents: null
-                ''', Loader=yaml.SafeLoader)
+        self.structure = [{
+            self.campaign_date: {
+                'CropCalendar': {
+                    'crop_name': self.crop_name,
+                    'variety_name': self.crop_variety,
+                    'crop_start_date': self.crop_start_date,
+                    'crop_start_type': self.crop_start_type,
+                    'crop_end_date': self.crop_end_date,
+                    'crop_end_type': self.crop_end_type,
+                    'max_duration': self.max_duration,
+                },
+                'TimedEvents': copy.deepcopy(self.timed_events),
+                'StateEvents': copy.deepcopy(self.state_events),
+            }
+        }]
 
     def replace_years(self, y):
         """
@@ -92,21 +97,54 @@ class AgroManagementContainer:
         self.build_structure()
         return self.structure
 
-    def start_sowing(self):
+    def start_sowing(self, campaign_start='previous_october'):
+        if campaign_start == 'crop_start':
+            self.campaign_date = self.crop_start_date
+        elif campaign_start in (None, 'previous_october'):
+            if self.campaign_date.year == self.crop_end_date.year:
+                self.campaign_date = datetime.date(self.crop_end_date.year - 1, 10, 1)
+                self.crop_start_date = datetime.date(self.crop_end_date.year - 1, 10, 1)
+        elif campaign_start == 'calendar':
+            pass
+        else:
+            raise ValueError(f"Unsupported campaign_start: {campaign_start}")
+
+        self.build_structure()
+        return self.structure
+
+    def start_previous_october(self):
         if self.campaign_date.year == self.crop_end_date.year:
             self.campaign_date = datetime.date(self.crop_end_date.year - 1, 10, 1)
             self.crop_start_date = datetime.date(self.crop_end_date.year - 1, 10, 1)
 
         self.build_structure()
+        return self.structure
 
     def start_emergence(self):
         self.campaign_date = datetime.date(self.crop_end_date.year, 1, 1)
         self.crop_start_date = datetime.date(self.crop_end_date.year, 1, 1)
 
         self.build_structure()
+        return self.structure
 
-    def get_start_type(self, start_type):
-        self.start_emergence() if start_type == 'emergence' else self.start_sowing()
+    def start_crop_start(self):
+        self.campaign_date = self.crop_start_date
+
+        self.build_structure()
+        return self.structure
+
+    def get_start_type(self, start_type, campaign_start='previous_october'):
+        if start_type == 'emergence':
+            return self.start_emergence()
+        elif start_type == 'crop_start':
+            return self.start_crop_start()
+        elif start_type in (None, 'sowing'):
+            return self.start_sowing(campaign_start=campaign_start)
+        elif start_type == 'calendar':
+            self.build_structure()
+            return self.structure
+        else:
+            raise ValueError(f"Unsupported start_type: {start_type}")
 
     @property
     def get_structure(self):
@@ -160,16 +198,27 @@ def replace_years_(agro_management, years):  # deprecated
 
 
 def get_weather_data_provider(location,
-                              random_weather=False) -> pcse.input.NASAPowerWeatherDataProvider or pcse.fileinput.CSVWeatherDataProvider:
+                              random_weather=False,
+                              weather_provider=None,
+                              openmeteo_kwargs=None):
+    weather_provider = (weather_provider or 'auto').lower()
+    openmeteo_kwargs = openmeteo_kwargs or {}
+
     if random_weather:
         wdp = get_random_weather_provider(location)
-    else:
+    elif weather_provider in ('openmeteo', 'open-meteo', 'open_meteo'):
+        wdp = get_openmeteo_provider(location, **openmeteo_kwargs)
+    elif weather_provider in ('nasapower', 'nasa-power', 'nasa_power', 'nasa'):
+        wdp = get_nasapower_provider(location)
+    elif weather_provider == 'auto':
         if location[0] % 0.5 != 0 or location[1] % 0.5 != 0:
             base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
             weather_file_dir = os.path.join(base_dir, 'utils', 'weather_utils', 'weather_csv')
             wdp = get_excel_provider(weather_file_dir, location)
         else:
             wdp = get_nasapower_provider(location)
+    else:
+        raise ValueError(f"Unsupported weather_provider: {weather_provider}")
     return wdp
 
 
@@ -184,6 +233,20 @@ def get_nasapower_provider(location):
 
 
 @functools.cache
+def get_openmeteo_provider(location, timezone='UTC', openmeteo_model='best_match',
+                           start_date=None, ETmodel='PM', forecast=False, force_update=False):
+    return pcse.input.OpenMeteoWeatherDataProvider(
+        *location,
+        timezone=timezone,
+        openmeteo_model=openmeteo_model,
+        start_date=start_date,
+        ETmodel=ETmodel,
+        forecast=forecast,
+        force_update=force_update,
+    )
+
+
+@functools.cache
 def get_random_weather_provider(location) -> pcse.input.CSVWeatherDataProvider:
     path_to_file = os.path.dirname(os.path.realpath(__file__))
     lat, lon = location
@@ -195,6 +258,19 @@ def get_random_weather_provider(location) -> pcse.input.CSVWeatherDataProvider:
     filename = os.path.join(path_to_file[:-4], 'utils', 'weather_utils', 'random_weather_csv', csv_name)
     wdp = pcse.input.CSVWeatherDataProvider(filename)
     return wdp
+
+
+def remove_timed_n_events(agro_management):
+    agro = copy.deepcopy(agro_management)
+    nitrogen_signals = {"apply_n", "apply_npk", "apply_n_snomin"}
+    for campaign in agro:
+        for campaign_body in campaign.values():
+            events = campaign_body.get("TimedEvents")
+            if not events:
+                continue
+            filtered = [event for event in events if event.get("event_signal") not in nitrogen_signals]
+            campaign_body["TimedEvents"] = filtered or None
+    return agro
 
 
 class Engine(pcse.engine.Engine):
@@ -319,10 +395,14 @@ class PCSEEnv(gym.Env):
                  location=None,
                  seed: int = None,
                  timestep: int = 1,
+                 wait_for_crop=True,
                  **kwargs
                  ):
 
         assert timestep > 0
+
+        # For skipping campaign date and starting simulation when sowing
+        self._wait_for_crop = wait_for_crop
 
         # Optionally set the seed
         super().reset(seed=seed)
@@ -349,24 +429,49 @@ class PCSEEnv(gym.Env):
 
         # Agent will have no access to weather
         self.no_weather = kwargs.get('no_weather', False)
+        self._preserve_agro_dates = kwargs.get('preserve_agro_dates', False)
+        self._campaign_start = kwargs.get('campaign_start', 'previous_october')
+        self._weather_provider = kwargs.get('weather_provider')
+        self._openmeteo_kwargs = kwargs.get('openmeteo_kwargs', {})
 
         # Store the agro-management config
         with open(agro_config, 'r') as f:
             self._agro_management = yaml.load(f, Loader=yaml.SafeLoader)
+        if kwargs.get('remove_timed_n', False):
+            self._agro_management = remove_timed_n_events(self._agro_management)
 
         # Initialize Agromanagement Container Class
         self.agmt = AgroManagementContainer(self._agro_management)
 
-        self.agmt.get_start_type(kwargs.get('start_type'))
+        if not self._preserve_agro_dates:
+            self._agro_management = self.agmt.get_start_type(
+                kwargs.get('start_type'),
+                campaign_start=self._campaign_start,
+            )
 
-        if years is not None:
+        if years is not None and not self._preserve_agro_dates:
             self._agro_management = self.agmt.replace_years(years)
 
         # Store the PCSE Engine config
         self._model_config = model_config
 
         # Get the weather data source
-        self._weather_data_provider = get_weather_data_provider(self._location, kwargs.get('random_weather'))
+        weather_data_provider = kwargs.get('weather_data_provider')
+        weather_data_file = kwargs.get('weather_data_file')
+        if weather_data_provider is not None:
+            self._weather_data_provider = weather_data_provider
+            self._fixed_weather_data_provider = True
+        elif weather_data_file is not None:
+            self._weather_data_provider = pcse.input.ExcelWeatherDataProvider(weather_data_file)
+            self._fixed_weather_data_provider = True
+        else:
+            self._weather_data_provider = get_weather_data_provider(
+                self._location,
+                kwargs.get('random_weather'),
+                weather_provider=self._weather_provider,
+                openmeteo_kwargs=self._openmeteo_kwargs,
+            )
+            self._fixed_weather_data_provider = False
 
         # Create a PCSE engine / crop growth model
         self._model = self._init_pcse_model()
@@ -406,6 +511,13 @@ class PCSEEnv(gym.Env):
                        self._agro_management,
                        config=self._model_config,
                        )
+
+        # Let simulation run until crop start date
+        if self._wait_for_crop:
+            skip_days = max(0, (self.agmt.get_start_date - self.agmt.campaign_date).days) - (self._timestep - 1)
+            if skip_days:
+                model.run(days=skip_days, action=0)
+
         # The model starts with output values for the initial date
         # The initial observation should contain output values for an entire timestep
         # If the timestep > 1, generate the remaining outputs by running the model
@@ -547,6 +659,14 @@ class PCSEEnv(gym.Env):
             info['output_history'] = self._model.get_output()
             info['summary_output'] = self._model.get_summary_output()
             info['terminal_output'] = self._model.get_terminal_output()
+            info['termination_reason'] = (
+                self.agmt.crop_end_type
+                if self.date >= self.agmt.crop_end_date
+                else 'pcse_terminate_signal'
+            )
+            info['episode_end_date'] = self.date
+            info['crop_end_date'] = self.agmt.crop_end_date
+            info['crop_end_type'] = self.agmt.crop_end_type
         truncated = False
         terminated = done
         # Return all values
@@ -656,6 +776,14 @@ class PCSEEnv(gym.Env):
         info['date'] = self.date
 
         return o, info if return_info else o
+
+    @property
+    def fixed_weather_data_provider(self):
+        return self._fixed_weather_data_provider
+
+    @property
+    def preserve_agro_dates(self):
+        return self._preserve_agro_dates
 
     def render(self, mode="human"):
         pass  # Nothing to see here

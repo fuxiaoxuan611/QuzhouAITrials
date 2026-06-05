@@ -8,6 +8,8 @@ import gymnasium as gym
 import lib_programname
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from pcse_gym.utils.episode_info import aggregate_episode_infos
 from tqdm import tqdm
 
 import datetime
@@ -81,7 +83,7 @@ def evaluate_policy(policy, env, n_eval_episodes=1, framework='sb3'):
         terminated, truncated, prev_action, prev_reward, info = False, False, None, None, None
         infos_this_episode = []
 
-        while not terminated or truncated:
+        while not (terminated or truncated):
             action, state, _ = policy.compute_single_action(obs=obs, state=state, prev_action=prev_action,
                                                             prev_reward=prev_reward, info=info)
             obs, reward, terminated, truncated, info = env.step(action)
@@ -90,13 +92,7 @@ def evaluate_policy(policy, env, n_eval_episodes=1, framework='sb3'):
             episode_reward += reward
             episode_length += 1
             infos_this_episode.append(info)
-        variables = infos_this_episode[0].keys()
-        episode_info = {}
-        for v in variables:
-            episode_info[v] = {}
-        for v in variables:
-            for info_dict in infos_this_episode:
-                episode_info[v].update(info_dict[v])
+        episode_info = aggregate_episode_infos(infos_this_episode)
         episode_rewards.append(episode_reward)
         episode_infos.append(episode_info)
     return episode_rewards, episode_infos
@@ -111,7 +107,7 @@ def evaluate_treatment(policy, env, n_eval_episodes=1):
         infos_this_episode = []
         fert_dates, fert_amounts = get_standard_practices(policy, env.sb3_env.agmt.get_end_date.year)
 
-        while not terminated or truncated:
+        while not (terminated or truncated):
             date = env.date
             action = 0
             for amount, fert_date in enumerate(fert_dates):
@@ -123,13 +119,7 @@ def evaluate_treatment(policy, env, n_eval_episodes=1):
             episode_reward += reward
             episode_length += 1
             infos_this_episode.append(info)
-        variables = infos_this_episode[0].keys()
-        episode_info = {}
-        for v in variables:
-            episode_info[v] = {}
-        for v in variables:
-            for info_dict in infos_this_episode:
-                episode_info[v].update(info_dict[v])
+        episode_info = aggregate_episode_infos(infos_this_episode)
         episode_rewards.append(episode_reward)
         episode_infos.append(episode_info)
     return episode_rewards, episode_infos
@@ -175,7 +165,7 @@ def evaluate_demeter(env, n_eval_episodes=1, constrained=True, soil=None, init_n
         infos_this_episode = []
         fert_amounts = get_demeter_policy(env.loc, env.sb3_env.agmt.get_end_date.year, soil=soil, init_n=init_n, constrained=constrained)
         week = 0
-        while not terminated or truncated:
+        while not (terminated or truncated):
             action = 0
             if constrained:
                 if 5 <= week < 30:
@@ -192,13 +182,7 @@ def evaluate_demeter(env, n_eval_episodes=1, constrained=True, soil=None, init_n
             week += 1
             infos_this_episode.append(info)
 
-        variables = infos_this_episode[0].keys()
-        episode_info = {}
-        for v in variables:
-            episode_info[v] = {}
-        for v in variables:
-            for info_dict in infos_this_episode:
-                episode_info[v].update(info_dict[v])
+        episode_info = aggregate_episode_infos(infos_this_episode)
         episode_rewards.append(episode_reward)
         episode_infos.append(episode_info)
     return episode_rewards, episode_infos

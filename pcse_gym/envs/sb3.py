@@ -14,8 +14,9 @@ from pathlib import Path
 import pcse_gym.envs.common_env as common_env
 import pcse_gym.utils.defaults as defaults
 import pcse_gym.utils.process_pcse_output as process_pcse
-from .rewards import Rewards
-from pcse_gym.utils.nitrogen_helpers import get_aggregated_n_depo_days, m2_to_ha
+from pcse_gym.utils.episode_info import aggregate_episode_infos
+from .rewards import Rewards, calculate_nue
+from pcse_gym.utils.nitrogen_helpers import get_aggregated_n_depo_days, get_surplus_n, m2_to_ha
 
 
 def to_weather_info(days, weather_data, weather_variables):
@@ -38,6 +39,27 @@ def update_info(inf, key, date, value):
         inf[key] = {}
     inf[key][date] = value
     return inf
+
+
+def finite_or_zero(value):
+    if value is None:
+        return 0.0
+    value = float(value)
+    if not np.isfinite(value):
+        return 0.0
+    return value
+
+
+def latest_crop_value(crop_model, feature):
+    values = crop_model.get(feature, [0.0])
+    if not values:
+        return 0.0
+    return finite_or_zero(values[-1])
+
+
+def weather_observation_timesteps(timestep):
+    """Weekly environments expose one averaged weather value per feature."""
+    return 1 if timestep == 7 else timestep
 
 
 class CustomFeatureExtractor(BaseFeaturesExtractor):
@@ -90,6 +112,7 @@ def get_policy_kwargs(n_crop_features=len(defaults.get_wofost_default_crop_featu
                       n_po_features=len(defaults.get_wofost_default_po_features()),
                       mask_binary=False,
                       n_timesteps=7):
+    n_timesteps = weather_observation_timesteps(n_timesteps)
     # Integration with BaseModel from Stable Baselines3
     policy_kwargs = dict(
         features_extractor_class=CustomFeatureExtractor,
@@ -125,6 +148,22 @@ def get_wofost_kwargs(config_dir=get_config_dir(), soil_file='arminda_soil.yaml'
         soil_parameters=soil_params,
     )
     return wofost_kwargs
+
+
+def get_quzhou_maize_kwargs(config_dir=get_config_dir(), remove_timed_n=True):
+    config_dir = Path(config_dir)
+    soil_params = yaml.safe_load(open(config_dir / 'soil' / 'quzhou_maize_4layer_whcns_2025.yaml'))
+    site_params = yaml.safe_load(open(config_dir / 'site' / 'quzhou_maize_site_2025.yaml'))
+    return dict(
+        model_config=str(config_dir / 'Wofost81_NWLP_MLWB_SNOMIN.conf'),
+        agro_config=str(config_dir / 'agro' / 'quzhou_maize_2025.yaml'),
+        crop_parameters=pcse.input.YAMLCropDataProvider(fpath=str(config_dir / 'crop'), force_reload=False),
+        site_parameters=site_params,
+        soil_parameters=soil_params,
+        weather_data_file=str(config_dir / 'weather' / 'quzhou_maize_2025_power.xlsx'),
+        remove_timed_n=remove_timed_n,
+        preserve_agro_dates=True,
+    )
 
 
 def get_lintul_kwargs(config_dir=get_config_dir()):
@@ -200,6 +239,7 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
         self.week = 0
         self.n_action = 0
         self.steps_since_last_zero = 0
+        self.cumulative_fertilization = 0.0
         self.dvs = 0
         super().__init__(timestep=timestep, years=years, location=location, *args, **kwargs)
         self.action_space = action_space
@@ -232,7 +272,11 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
         if self.no_weather:
             nvars = len(self.crop_features)
         else:
-            nvars = len(self.crop_features) + len(self.action_features) + len(self.weather_features) * self.timestep
+            nvars = (
+                len(self.crop_features)
+                + len(self.action_features)
+                + len(self.weather_features) * weather_observation_timesteps(self.timestep)
+            )
             # if self.week is not None:
             #     nvars = nvars + 1
         if self.mask_binary:
@@ -258,15 +302,17 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
         measure = None
         if isinstance(action, np.ndarray):
             action, measure = action[0], action[1:]
+        action_amount = action * self.action_multiplier
+        self.cumulative_fertilization += action_amount * 10
 
-        obs, _, terminated, truncated, _ = super().step(action)
+        obs, _, terminated, truncated, pcse_info = super().step(action)
 
         # populate observation
         observation = self._observation(obs)
 
         # populate reward
         pcse_output = self.model.get_output()
-        amount = action * self.action_multiplier
+        amount = action_amount
         reward, growth = self.rewards.growth_storage_organ(pcse_output, amount, self.multiplier_amount)
 
         # populate info
@@ -274,11 +320,10 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
         days = [day['day'] for day in pcse_output]
         weather_data = [self._weather_data_provider(day) for day in days]
         weather_info = to_weather_info(days, weather_data, self._weather_variables)
-        info = {**pd.concat([crop_info, weather_info], axis=1, join="inner").to_dict()}
+        info = {**pcse_info, **pd.concat([crop_info, weather_info], axis=1, join="inner").to_dict()}
 
         start_date = process_pcse.get_start_date(pcse_output, self.timestep)
-        # start_date is beginning of the week
-        # self.date is the end of the week (if timestep=7)
+        # start_date is the beginning of the decision interval.
         info = update_info(info, 'action', start_date, action)
         info = update_info(info, 'fertilizer', start_date, amount*10)
         info = update_info(info, 'reward', self.date, reward)
@@ -293,7 +338,7 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
             info['indexes'] = self.index_feature
 
         # for constraints
-        self.week += 1
+        self.week += self.timestep / 7
         self.n_action += 1 if action > 0 else 0
         self.steps_since_last_zero += 1 if action == 0 else 0
         if action > 0:
@@ -307,6 +352,7 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
         self.week = 0
         self.n_action = 0
         self.steps_since_last_zero = 0
+        self.cumulative_fertilization = 0.0
         self.dvs = 0
         obs = super().reset(seed=seed, options=options)
         if isinstance(obs, tuple):
@@ -330,32 +376,67 @@ class StableBaselinesWrapper(common_env.PCSEEnv):
                 # Loop through some checks to grab correct obs
                 if feature in ['SM', 'NH4', 'NO3', 'WC']:
                     if feature in ['NH4', 'NO3']:
-                        obs[i] = sum(observation['crop_model'][feature][-1]) / m2_to_ha
+                        obs[i] = finite_or_zero(sum(observation['crop_model'][feature][-1]) / m2_to_ha)
                     elif feature in ['SM', 'WC'] and self.pcse_env == 1:
-                        obs[i] = observation['crop_model'][feature][-1]
+                        obs[i] = finite_or_zero(observation['crop_model'][feature][-1])
                     else:
-                        obs[i] = np.mean(observation['crop_model'][feature][-1])
+                        obs[i] = finite_or_zero(np.mean(observation['crop_model'][feature][-1]))
                 elif feature in ['RNO3DEPOSTT', 'RNH4DEPOSTT']:
-                    obs[i] = observation['crop_model'][feature][-1] / m2_to_ha
+                    obs[i] = finite_or_zero(observation['crop_model'][feature][-1] / m2_to_ha)
                 elif feature in ['week']:
                     obs[i] = self.week
                 elif feature in ['Naction']:
                     obs[i] = self.n_action
                 elif feature in ['last_zero_action']:
                     obs[i] = self.steps_since_last_zero
+                elif feature in ['NUE', 'Nsurp', 'Nsurplus']:
+                    obs[i] = self._intermediate_nue_feature(feature, observation)
                 else:
-                    obs[i] = observation['crop_model'][feature][-1]
+                    obs[i] = finite_or_zero(observation['crop_model'][feature][-1])
 
         for i, feature in enumerate(self.action_features):
             j = len(self.crop_features) + i
-            obs[j] = sum(observation['action_features'][feature])
+            obs[j] = finite_or_zero(sum(observation['action_features'][feature]))
 
         if not self.no_weather:
-            for d in range(self.timestep):
+            if self.timestep == 7:
                 for i, feature in enumerate(self.weather_features):
-                    j = d * len(self.weather_features) + len(self.crop_features) + len(self.action_features) + i
-                    obs[j] = observation['weather'][feature][d]
+                    j = len(self.crop_features) + len(self.action_features) + i
+                    values = [finite_or_zero(value) for value in observation['weather'][feature]]
+                    value = np.mean(values)
+                    obs[j] = value / 1_000_000.0 if feature == 'IRRAD' else value
+            else:
+                for d in range(self.timestep):
+                    for i, feature in enumerate(self.weather_features):
+                        j = d * len(self.weather_features) + len(self.crop_features) + len(self.action_features) + i
+                        value = finite_or_zero(observation['weather'][feature][d])
+                        obs[j] = value / 1_000_000.0 if feature == 'IRRAD' else value
         return obs
+
+    def _intermediate_nue_feature(self, feature, observation):
+        crop_model = observation.get('crop_model', {})
+        if 'NamountSO' not in crop_model:
+            return 0.0
+        n_output = latest_crop_value(crop_model, 'NamountSO')
+        no3_depo = latest_crop_value(crop_model, 'RNO3DEPOSTT') / m2_to_ha
+        nh4_depo = latest_crop_value(crop_model, 'RNH4DEPOSTT') / m2_to_ha
+        if feature == 'NUE':
+            return finite_or_zero(
+                calculate_nue(
+                    self.cumulative_fertilization,
+                    n_output,
+                    no3_depo=no3_depo,
+                    nh4_depo=nh4_depo,
+                )
+            )
+        return finite_or_zero(
+            get_surplus_n(
+                self.cumulative_fertilization,
+                n_output,
+                no3_depo=no3_depo,
+                nh4_depo=nh4_depo,
+            )
+        )
 
     def get_harvest_year(self):
         if self.agmt.campaign_date.year < self.agmt.crop_end_date.year:
@@ -428,17 +509,10 @@ class ZeroNitrogenEnvStorage:
         env.reset()
         terminated, truncated = False, False
         infos_this_episode = []
-        while not terminated or truncated:
+        while not (terminated or truncated):
             _, _, terminated, truncated, info = env.step(0)
             infos_this_episode.append(info)
-        variables = infos_this_episode[0].keys()
-        episode_info = {}
-        for v in variables:
-            episode_info[v] = {}
-        for v in variables:
-            for info_dict in infos_this_episode:
-                episode_info[v].update(info_dict[v])
-        return episode_info
+        return aggregate_episode_infos(infos_this_episode)
 
     def get_key(self, env):
         ''' We label the year based on the harvest date. e.g. sow in Oct 2002, harvest in Aug 2003, means that
@@ -461,3 +535,37 @@ class ZeroNitrogenEnvStorage:
     @property
     def get_result(self):
         return self.results
+
+
+class PotentialProductionEnvStorage(ZeroNitrogenEnvStorage):
+    """
+    Store results from a policy that applies a saturating amount of nitrogen
+    at every environment step.
+    """
+
+    def __init__(self, fertilizer_action=None, unbounded_box_action=100.0):
+        super().__init__()
+        self.fertilizer_action = fertilizer_action
+        self.unbounded_box_action = unbounded_box_action
+
+    def run_episode(self, env):
+        env.reset()
+        action = self.get_fertilizer_action(env)
+        terminated, truncated = False, False
+        infos_this_episode = []
+        while not (terminated or truncated):
+            _, _, terminated, truncated, info = env.step(action)
+            infos_this_episode.append(info)
+        return aggregate_episode_infos(infos_this_episode)
+
+    def get_fertilizer_action(self, env):
+        if self.fertilizer_action is not None:
+            return self.fertilizer_action
+        if isinstance(env.action_space, gym.spaces.Discrete):
+            return env.action_space.n - 1
+        if isinstance(env.action_space, gym.spaces.MultiDiscrete):
+            return int(env.action_space.nvec[0] - 1)
+        if isinstance(env.action_space, gym.spaces.Box):
+            high = float(env.action_space.high.flat[0])
+            return high if np.isfinite(high) else self.unbounded_box_action
+        raise TypeError(f"Unsupported action space for potential production policy: {env.action_space}")

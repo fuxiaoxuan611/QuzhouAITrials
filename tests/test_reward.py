@@ -39,11 +39,10 @@ class Rewards(unittest.TestCase):
     def test_reward_functions(self):
         rfs = [self.dep, self.nue, self.eny, self.nup,
                self.har, self.dnu, self.fin, self.def1, self.dne]
-        expected_rs = [8638.21, -20, 8658.21, 137.42, 1266.20, -47.95, 1359.65, 2291.47, -120.0,]
+        expected_rs = [8638.21, -20, 8658.21, 137.42, 1266.20, -47.95, 1359.65, 2242.42, -120.0,]
         for rf_env, expected_r in zip(rfs, expected_rs):
             r = self.run_steps_sp(rf_env, 2002, False)
             print(f"reward {r} and rf {rf_env.reward_function}")
             check_if_close = isclose(r, expected_r, abs_tol=5)
             self.assertTrue(check_if_close)
-
 

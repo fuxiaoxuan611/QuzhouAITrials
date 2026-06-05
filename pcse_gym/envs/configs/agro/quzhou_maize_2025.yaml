@@ -1,0 +1,21 @@
+- 2025-05-09:
+    CropCalendar:
+      crop_end_date: 2025-10-15
+      crop_end_type: harvest
+      crop_name: maize
+      crop_start_date: 2025-06-09
+      crop_start_type: sowing
+      max_duration: 400
+      variety_name: Quzhou_maize_2025_Opt
+    StateEvents: null
+    TimedEvents:
+    - event_signal: irrigate
+      name: Opt irrigation application table
+      comment: Amounts converted from m3 per 60m x 30m plot to cm water depth.
+      events_table:
+      - 2025-06-10:
+          amount: 12.939
+          efficiency: 0.8
+      - 2025-07-14:
+          amount: 10.689
+          efficiency: 0.8

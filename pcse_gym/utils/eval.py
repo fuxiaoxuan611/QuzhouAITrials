@@ -3,6 +3,8 @@ import datetime
 import pandas as pd
 import gymnasium as gym
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 import time
@@ -29,6 +31,7 @@ from pcse_gym.utils.process_pcse_output import get_dict_lintul_wofost
 from pcse_gym.utils.nitrogen_helpers import get_surplus_n
 from pcse_gym.envs.rewards import calculate_nue
 from pcse_gym.agent.masked_actorcriticpolicy import MaskedActorCriticPolicy, MaskedRecurrentActorCriticPolicy
+from pcse_gym.utils.episode_info import aggregate_episode_infos
 from .plotter import plot_variable, plot_var_vs_freq_scatter, get_ylim_dict
 from evaluate_agent import select_init_n_scenario
 
@@ -143,17 +146,77 @@ def compute_average(results_dict: dict, filter_list=None):
 def get_action_probs(dis: MultiCategoricalDistribution, po_features, crop_features, measure_all):
     if po_features:
         dict = {}
-        dict['prob_action'] = dis.distribution[0].probs.detach().numpy()[0]
+        dict['prob_action'] = dis.distribution[0].probs.detach().cpu().numpy()[0]
         if measure_all:
-            dict['prob_measure'] = dis.distribution[1].probs.detach().numpy()[0][1]
+            dict['prob_measure'] = dis.distribution[1].probs.detach().cpu().numpy()[0][1]
         else:
             for i, feature in enumerate(crop_features):
                 if feature in po_features:
                     feature = "prob_" + feature
-                    dict[feature] = dis.distribution[i].probs.detach().numpy()[0][1]
+                    dict[feature] = dis.distribution[i].probs.detach().cpu().numpy()[0][1]
         return dict
     else:
         return None
+
+
+def initial_recurrent_state(policy, n_envs=1):
+    """Create a zeroed actor-and-critic state for recurrent evaluation."""
+    model_state = policy._last_lstm_states
+
+    def zero_state(states):
+        return tuple(torch.zeros_like(state[:, :n_envs, :]) for state in states)
+
+    return RNNStates(zero_state(model_state.pi), zero_state(model_state.vf))
+
+
+def recurrent_policy_step(policy, obs, recurrent_state, episode_starts, deterministic=True):
+    """Evaluate one recurrent step while keeping actor and critic states aligned."""
+    policy.policy.set_training_mode(False)
+    obs_torch, vectorized_env = policy.policy.obs_to_tensor(obs)
+    episode_starts_torch = torch.as_tensor(
+        episode_starts,
+        dtype=torch.float32,
+        device=policy.device,
+    )
+
+    with torch.no_grad():
+        distribution, _ = policy.policy.get_distribution(
+            obs_torch,
+            lstm_states=recurrent_state.pi,
+            episode_starts=episode_starts_torch,
+        )
+        outputs = policy.policy(
+            obs_torch,
+            recurrent_state,
+            episode_starts_torch,
+            deterministic=deterministic,
+        )
+
+    if len(outputs) == 5:
+        actions, values, cost_values, _, next_recurrent_state = outputs
+    else:
+        actions, values, _, next_recurrent_state = outputs
+        cost_values = None
+
+    actions = actions.cpu().numpy()
+    if isinstance(policy.action_space, gym.spaces.Box):
+        if policy.policy.squash_output:
+            actions = policy.policy.unscale_action(actions)
+        else:
+            actions = np.clip(actions, policy.action_space.low, policy.action_space.high)
+    if not vectorized_env:
+        actions = actions.squeeze(axis=0)
+
+    return actions, next_recurrent_state, distribution, values, cost_values
+
+
+def standard_practice_action(date, fert_dates, applied_fert_dates, amount=1):
+    """Apply each standard-practice fertilizer event at most once."""
+    for fert_date in fert_dates:
+        if fert_date not in applied_fert_dates and fert_date < date <= fert_date + datetime.timedelta(7):
+            applied_fert_dates.add(fert_date)
+            return [amount * 3]
+    return [amount * 0]
 
 
 def evaluate_policy(
@@ -212,15 +275,16 @@ def evaluate_policy(
         episode_length = 0
         year = env.get_attr("date")[0].year
         fert_dates = [datetime.date(year, 2, 24), datetime.date(year, 3, 26), datetime.date(year, 4, 29)]
+        applied_fert_dates = set()
         action = [amount * 0]
         infos_this_episode = []
         prob, val = None, None
 
-        lstm_state = None
+        recurrent_state = initial_recurrent_state(policy) if isinstance(policy, RecurrentPPO) else None
         episode_starts = np.ones((1,), dtype=bool)
         action_probs = None
 
-        while not terminated or truncated:
+        while not (terminated or truncated):
             if policy == 'start-dump' and (episode_length == 0):
                 action = [amount * 1]
             if isinstance(policy, base_class.BaseAlgorithm):
@@ -288,31 +352,16 @@ def evaluate_policy(
                                                    deterministic=deterministic)
 
                 if isinstance(policy, RecurrentPPO):
-                    action, lstm_state = policy.predict(obs, state=lstm_state, episode_start=episode_starts,
-                                                        deterministic=deterministic)
-
-                    if 'cuda' in device:
-                        lstm_torch = (torch.from_numpy(lstm_state[0]).to(device),
-                                      torch.from_numpy(lstm_state[1]).to(device))
-
-                        dis, _ = policy.policy.get_distribution(torch.from_numpy(obs).to(device),
-                                                                lstm_states=lstm_torch,
-                                                                episode_starts=torch.from_numpy(episode_starts).to(device))
-                        val = policy.policy.predict_values(torch.from_numpy(obs).to(device),
-                                                           lstm_states=lstm_torch,
-                                                           episode_starts=torch.from_numpy(episode_starts).to(device))
-                        val = val.detach().cpu().numpy()[0][0]
-                    else:
-                        lstm_torch = (torch.from_numpy(lstm_state[0]),
-                                      torch.from_numpy(lstm_state[1]))
-
-                        dis, _ = policy.policy.get_distribution(torch.from_numpy(obs),
-                                                                lstm_states=lstm_torch,
-                                                                episode_starts=torch.from_numpy(episode_starts))
-                        val = policy.policy.predict_values(torch.from_numpy(obs),
-                                                           lstm_states=lstm_torch,
-                                                           episode_starts=torch.from_numpy(episode_starts))
-                        val = val.detach().numpy()[0][0]
+                    action, recurrent_state, dis, predicted_values, predicted_cost_values = recurrent_policy_step(
+                        policy,
+                        obs,
+                        recurrent_state,
+                        episode_starts,
+                        deterministic=deterministic,
+                    )
+                    if predicted_cost_values is not None:
+                        cost_val = predicted_cost_values.detach().cpu().numpy()[0][0]
+                    val = predicted_values.detach().cpu().numpy()[0][0]
 
                     action_probs = get_action_probs(dis, env.envs[0].unwrapped.po_features,
                                                     env.envs[0].unwrapped.crop_features,
@@ -360,21 +409,13 @@ def evaluate_policy(
             action = [amount * 0]
             if policy in ['standard-practice', 'standard-practise']:
                 date = env.get_attr("date")[0]
-                for fert_date in fert_dates:
-                    if fert_date < date <= fert_date + datetime.timedelta(7):
-                        action = [amount * 3]
+                action = standard_practice_action(date, fert_dates, applied_fert_dates, amount)
             if policy == 'no-nitrogen':
                 action = [0]
             episode_reward += reward
             episode_length += 1
             infos_this_episode.append(info[0])
-        variables = infos_this_episode[0].keys()
-        episode_info = {}
-        for v in variables:
-            episode_info[v] = {}
-        for v in variables:
-            for info_dict in infos_this_episode:
-                episode_info[v].update(info_dict[v])
+        episode_info = aggregate_episode_infos(infos_this_episode)
         episode_rewards.append(episode_reward)
         episode_infos.append(episode_info)
     if isinstance(policy, base_class.BaseAlgorithm) and policy.get_env() is not None:
@@ -439,15 +480,15 @@ class FindOptimum():
     def weekly_dumps(self, year, schedule, num_weeks):
         self.env.overwrite_year(year)
         self.env.reset()
-        terminated = False
+        terminated, truncated = False, False
         total_reward = 0.0
         week = 0
-        while not terminated:
+        while not (terminated or truncated):
             action = 0
             if week < num_weeks:
                 x = schedule[week]
                 action = x
-            _, reward, terminated, _, _ = self.env.step(action)
+            _, reward, terminated, truncated, _ = self.env.step(action)
             total_reward += reward
             week += 1
         return total_reward
@@ -455,15 +496,15 @@ class FindOptimum():
     def weekly_short_dumps(self, year, schedule, start_week, end_week, n_level):
         self.env.overwrite_year(year)
         self.env.reset(options=select_init_n_scenario(n_level) if n_level is not None else None)
-        terminated = False
+        terminated, truncated = False, False
         total_reward = 0.0
         week = 0
-        while not terminated:
+        while not (terminated or truncated):
             action = 0
             if start_week <= week < end_week:
                 x = schedule[week-start_week]
                 action = x
-            _, reward, terminated, _, _ = self.env.step(action)
+            _, reward, terminated, truncated, _ = self.env.step(action)
             total_reward += reward
             week += 1
         return total_reward
@@ -854,7 +895,7 @@ class EvalCallback(BaseCallback):
                       f'Avg. NUE: {avg_nue:.4f}\n'
                       f'Avg. WSO: {avg_wso:.4f}\n'
                       f'Avg. Nsurplus: {avg_nsurplus:.4f}\n'
-                      f'Action weeks: {acts}')
+                      f'Action decision steps: {acts}')
 
             for test_location in list(set(self.test_locations)):
                 test_keys = [(a, test_location) for a in self.test_years]

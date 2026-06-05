@@ -1,0 +1,171 @@
+schema_version: 1
+
+experiment:
+  name: CN-Maize
+  seed: 0
+  train_years: [1952, 1954, 1956, 1958, 1960, 1962, 1964, 1966, 1968, 1970, 1972, 1974, 1976, 1978, 1980, 1982, 1984, 1986, 1988, 1990, 1992, 1994, 1996, 1998, 2000, 2002, 2004, 2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024]
+  test_years: [1951, 1953, 1955, 1957, 1959, 1961, 1963, 1965, 1967, 1969, 1971, 1973, 1975, 1977, 1979, 1981, 1983, 1985, 1987, 1989, 1991, 1993, 1995, 1997, 1999, 2001, 2003, 2005, 2007, 2009, 2011, 2013, 2015, 2017, 2019, 2021, 2023, 2025]
+  train_locations:
+    - { code: CN-1, lat: 36.77, lon: 114.96 }
+    - { code: CN-1-N, lat: 37.02, lon: 114.96 }
+    - { code: CN-1-S, lat: 36.52, lon: 114.96 }
+#    - { code: CN-1-E, lat: 36.77, lon: 115.21 }
+#    - { code: CN-1-W, lat: 36.77, lon: 114.71 }
+#    - { code: CN-1-NE, lat: 37.02, lon: 115.21 }
+#    - { code: CN-1-NW, lat: 37.02, lon: 114.71 }
+#    - { code: CN-1-SE, lat: 36.52, lon: 115.21 }
+#    - { code: CN-1-SW, lat: 36.52, lon: 114.71 }
+  test_locations: [{code: CN-1, lat: 36.77, lon: 114.96}]
+
+run:
+  dry_run: false
+  log_dir: tensorboard_logs/WOFOST_maize_experiments
+
+environment:
+  class: Maize
+  framework: sb3
+  timestep: 7
+  random_init: false
+  preserve_site_n: true
+  no_weather: false
+  normalize: false
+
+observation:
+  crop_features: [DVS, TAGP, LAI, NuptakeTotal, NO3, NH4, WC, RFTRA, WSO, NLOSSCUM, RNO3DEPOSTT, RNH4DEPOSTT, NamountSO, week, Naction, NUE, Nsurp]
+  weather_features: [IRRAD, TMIN, TMAX, RAIN]
+  action_features: [action_history]
+  partial:
+    enabled: false
+    features: []
+    noisy_measure: false
+    mask_binary: false
+    placeholder: -1.11
+    cost_measure: real
+    measure_cost_multiplier: 1
+    measure_all: false
+
+action_space:
+  type: discrete
+  n: 16
+  multiplier: 1.0
+  discrete_amounts: null
+
+reward:
+  name: POT
+  costs_nitrogen: 10.0
+  reward_var: null
+
+constraints:
+  hard:
+    enabled: true
+    action_limit: 0
+    n_budget: 0
+    temporal: false
+  soft:
+    enabled_for_agents: [LagPPO, RecurrentLagPPO]
+    cost_key: cost
+    components_key: cost_components
+    max_non_zero_actions: 3
+    nue_threshold: [0.5, 0.9]
+    n_surplus_threshold: [0.0, 60.0]
+    weights: {n: 5.0, nue: 1.0, n_surplus: 1.0}
+
+crop_model:
+  pcse_model: wofost_snomin
+  model_config: pcse_gym/envs/configs/Wofost81_NWLP_MLWB_SNOMIN.conf
+  agro:
+    path: pcse_gym/envs/configs/agro/quzhou_maize_2025.yaml
+    start_type: sowing
+    campaign_start: previous_october
+    preserve_dates: true
+    remove_timed_n: true
+
+crop:
+  provider: yaml_crop_data
+  fpath: pcse_gym/envs/configs/crop
+  name: maize
+  variety: Grain_maize_201
+  force_reload: false
+
+soil:
+  provider: yaml
+  path: pcse_gym/envs/configs/soil/quzhou_maize_4layer_whcns_2025.yaml
+
+site:
+  provider: yaml
+  path: pcse_gym/envs/configs/site/quzhou_maize_site_2025.yaml
+  initializer: parameter_provider_sitedata
+
+weather:
+  source: provider
+  provider: openmeteo
+  random_weather: false
+  file: null
+  openmeteo:
+    timezone: Asia/Shanghai
+    model: best_match
+    start_date: 2025-01-01
+    forecast: false
+    force_update: false
+
+agent:
+  name: RecurrentLagPPO
+  seed: ${experiment.seed}
+  device: cpu
+  gamma: 1.0
+  policy: auto
+  hyperparameters:
+    batch_size: 276
+    n_steps: 2208
+    learning_rate: 0.001
+    ent_coef: 0.01
+    clip_range: 0.2
+    n_epochs: 10
+    gae_lambda: 0.95
+    max_grad_norm: 0.5
+    vf_coef: 0.5
+  lagrangian:
+    cost_limit: 0.0
+    lambda_init: 1.0
+    lambda_lr: 0.05
+    lambda_max: null
+    cost_vf_coef: 0.7
+  policy_kwargs:
+    net_arch: {pi: [256, 256], vf: [256, 256]}
+    activation_fn: Tanh
+    ortho_init: false
+    masked_actor_critic_max_actions: 0
+    apply_masking: true
+
+wrappers:
+  monitor: true
+  vec_env:
+    type: vec_normalize
+    multiprocess: false
+    n_envs: 4
+    norm_obs: true
+    norm_reward: true
+    clip_obs: 10000000.0
+    clip_reward: 100000.0
+    gamma: 1.0
+
+training:
+  total_timesteps: 3000000
+  eval_freq: 50000
+  tb_log_name_suffix: run
+  intrinsic_reward:
+    enabled: false
+    name: null
+    latent_dim: null
+
+logging:
+  comet:
+    enabled: true
+    api_key_file: comet/comet_key
+    workspace: pcse-gym
+    project_name: cropGym_quzhou_maize_experiments
+    log_code: true
+    log_graph: true
+    auto_metric_logging: true
+    auto_histogram_tensorboard_logging: true
+    tags: [sb3, maize, CN-Quzhou, WOFOST-SNOMIN]

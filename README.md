@@ -112,6 +112,29 @@ Create the folder if it does not already exist.
 
 ## Quick start
 
+The YAML-driven entrypoint is:
+
+```bash
+python train.py --config configs/experiments/NL-Wheat.yaml
+```
+
+You can override individual settings with repeated `--override key=value` flags:
+
+```bash
+python train.py \
+  --config configs/experiments/CN-Maize.yaml \
+  --override experiment.seed=3 \
+  --override agent.seed=3 \
+  --override training.total_timesteps=2000000 \
+  --override logging.comet.enabled=false
+```
+
+For a fast build check without learning:
+
+```bash
+python train.py --config configs/experiments/debug.yaml --dry-run
+```
+
 An example command to train a model using:
 - NUE as the reward function
 - LagrangianPPO as the agent
@@ -130,6 +153,82 @@ python train_winterwheat.py \
   --irs E3B \
   --no-comet
 ```
+
+## Lagrangian PPO constraints
+
+`LagPPO` uses a Stable-Baselines3-compatible Lagrangian PPO implementation in
+`pcse_gym/agent/ppo_mod.py`. The algorithm is generic: it does not contain
+crop-specific fertilization rules. Instead, environments or wrappers expose a
+scalar cost at every step:
+
+```python
+info["cost"] = 1.0
+info["cost_components"] = {
+    "too_many_nonzero_actions": 0.0,
+    "nue_violation": 1.0,
+    "n_surplus_violation": 0.0,
+}
+```
+
+For the built-in agronomic soft costs, wrap the environment with
+`ConstraintCostWrapper` from `pcse_gym.envs.constraints`. This wrapper does not
+alter actions; it only reports costs. The older `ActionConstrainer` remains
+available for experiments that intentionally need hard action modification.
+
+Important `LagPPO` settings exposed by the training scripts:
+
+```bash
+--lag-cost-limit 0.0
+--lag-lambda-init 1.0
+--lag-lambda-lr 0.05
+--lag-lambda-max 3.0
+--lag-cost-vf-coef 0.7
+--lag-cost-key cost
+```
+
+The policy objective uses the OmniSafe-style penalized advantage:
+
+```text
+A_lag = (A_reward - lambda * A_cost) / (1 + lambda)
+```
+
+`RecurrentLagrangianPPO` is also available for LSTM policies and can be selected
+in the training scripts with `--agent RecurrentLagPPO`. It adapts
+`sb3_contrib.RecurrentPPO` with recurrent cost storage, cost advantages, and a
+shared recurrent reward/cost critic feature path. Current limitations are that
+the algorithm consumes one aggregate scalar cost and the recurrent v1 shares
+critic features between reward and cost value heads.
+
+## Quzhou Maize Calibration
+
+The winter-wheat RL training path is kept as the current working baseline in `train_winterwheat.py`, because the wheat trials still need that line of work. For the China maize field-trial work, the calibrated Quzhou crop parameter file is included at:
+
+```text
+pcse_gym/envs/configs/crop/maize.yaml
+```
+
+It registers `maize` in `pcse_gym/envs/configs/crop/crops.yaml` and provides both `Grain_maize_201` and `Quzhou_maize_2025_Opt` varieties. These parameters are the crop-side overrides from `../quzhou_maize/scripts/run_final_model.py`; the calibrated site, soil, agromanagement, and weather inputs still live under `../quzhou_maize/inputs/`.
+
+The matching Quzhou site and soil inputs have also been copied into the RL config tree:
+
+```text
+pcse_gym/envs/configs/site/quzhou_maize_site_2025.yaml
+pcse_gym/envs/configs/soil/quzhou_maize_4layer_whcns_2025.yaml
+pcse_gym/envs/configs/agro/quzhou_maize_2025.yaml
+pcse_gym/envs/configs/weather/quzhou_maize_2025_power.xlsx
+```
+
+These are direct copies of the final Quzhou inputs used by `../quzhou_maize/scripts/run_final_model.py`, except that the copied agromanagement file is stored in the raw list format used by CropGym configs.
+
+Use the maize constructor with:
+
+```python
+from pcse_gym.envs.maize import Maize
+
+env = Maize(reward="GRO")
+```
+
+By default, `Maize` preserves the calibrated Quzhou site N profile and fixed 2025 weather, keeps the timed irrigation events, and removes the timed N fertilizer events so the RL action controls N applications. Passing `remove_timed_n=False` keeps the original scheduled fertilizer events and reproduces the calibrated `run_final_model.py` replay with zero RL action.
 
 
 ## Citation
@@ -151,4 +250,3 @@ If you find this work useful, please consider citing:
 ### Acknowledgements
 
 This work was carried out as part of the EU Horizon project [Smart Droplets](https://github.com/Smart-Droplets-Project), [https://smartdroplets.eu/](https://smartdroplets.eu/).
-

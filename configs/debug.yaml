@@ -1,0 +1,162 @@
+schema_version: 1
+
+experiment:
+  name: debug
+  seed: 0
+  train_years: [2025]
+  test_years: [2025]
+  train_locations: [{code: CN-Quzhou, lat: 36.87, lon: 115.02}]
+  test_locations: [{code: CN-Quzhou, lat: 36.87, lon: 115.02}]
+
+run:
+  dry_run: true
+  log_dir: tensorboard_logs/debug
+
+environment:
+  class: Maize
+  framework: sb3
+  timestep: 7
+  random_init: false
+  preserve_site_n: true
+  no_weather: false
+  normalize: false
+
+observation:
+  crop_features: [DVS, TAGP, LAI, NuptakeTotal, NO3, NH4, WC, WSO, week, Naction]
+  weather_features: [IRRAD, TMIN, RAIN]
+  action_features: [action_history]
+  partial:
+    enabled: false
+    features: []
+    noisy_measure: false
+    mask_binary: false
+    placeholder: -1.11
+    cost_measure: real
+    measure_cost_multiplier: 1
+    measure_all: false
+
+action_space:
+  type: discrete
+  n: 3
+  multiplier: 1.0
+  discrete_amounts: null
+
+reward:
+  name: NUE
+  costs_nitrogen: 10.0
+  reward_var: null
+
+constraints:
+  hard:
+    enabled: true
+    action_limit: 0
+    n_budget: 0
+    temporal: false
+  soft:
+    enabled_for_agents: [LagPPO, RecurrentLagPPO]
+    cost_key: cost
+    components_key: cost_components
+    max_non_zero_actions: 4
+    nue_threshold: [0.5, 0.9]
+    n_surplus_threshold: [0.0, 40.0]
+    weights: {n: 5.0, nue: 1.0, n_surplus: 1.0}
+
+crop_model:
+  pcse_model: wofost_snomin
+  model_config: pcse_gym/envs/configs/Wofost81_NWLP_MLWB_SNOMIN.conf
+  agro:
+    path: pcse_gym/envs/configs/agro/quzhou_maize_2025.yaml
+    start_type: sowing
+    campaign_start: previous_october
+    preserve_dates: true
+    remove_timed_n: true
+
+crop:
+  provider: yaml_crop_data
+  fpath: pcse_gym/envs/configs/crop
+  name: maize
+  variety: Grain_maize_201
+  force_reload: false
+
+soil:
+  provider: yaml
+  path: pcse_gym/envs/configs/soil/quzhou_maize_4layer_whcns_2025.yaml
+
+site:
+  provider: yaml
+  path: pcse_gym/envs/configs/site/quzhou_maize_site_2025.yaml
+  initializer: parameter_provider_sitedata
+
+weather:
+  source: file
+  provider: null
+  random_weather: false
+  file: pcse_gym/envs/configs/weather/quzhou_maize_2025_power.xlsx
+  openmeteo:
+    timezone: Asia/Shanghai
+    model: best_match
+    start_date: 2025-01-01
+    forecast: false
+    force_update: false
+
+agent:
+  name: PPO
+  seed: ${experiment.seed}
+  device: cpu
+  gamma: 1.0
+  policy: auto
+  hyperparameters:
+    batch_size: 4
+    n_steps: 8
+    learning_rate: 0.001
+    ent_coef: 0.01
+    clip_range: 0.2
+    n_epochs: 1
+    gae_lambda: 0.95
+    max_grad_norm: 0.5
+    vf_coef: 0.5
+  lagrangian:
+    cost_limit: 0.0
+    lambda_init: 1.0
+    lambda_lr: 0.05
+    lambda_max: null
+    cost_vf_coef: 0.7
+  policy_kwargs:
+    net_arch: {pi: [32], vf: [32]}
+    activation_fn: Tanh
+    ortho_init: false
+    masked_actor_critic_max_actions: 0
+    apply_masking: true
+
+wrappers:
+  monitor: true
+  vec_env:
+    type: vec_normalize
+    multiprocess: false
+    n_envs: 1
+    norm_obs: true
+    norm_reward: true
+    clip_obs: 10000000.0
+    clip_reward: 100000.0
+    gamma: 1.0
+
+training:
+  total_timesteps: 16
+  eval_freq: 8
+  tb_log_name_suffix: run
+  intrinsic_reward:
+    enabled: false
+    name: null
+    latent_dim: null
+
+logging:
+  comet:
+    enabled: false
+    api_key_file: comet/comet_key
+    workspace: pcse-gym
+    project_name: cropGym_debug
+    log_code: false
+    log_graph: false
+    auto_metric_logging: false
+    auto_histogram_tensorboard_logging: false
+    tags: [debug]

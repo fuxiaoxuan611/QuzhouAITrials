@@ -15,7 +15,7 @@ import gymnasium.spaces
 from gymnasium.envs.registration import register
 import gymnasium as gym
 
-from pcse_gym.envs.constraints import ActionConstrainer
+from pcse_gym.envs.constraints import ActionConstrainer, ConstraintCostWrapper
 from pcse_gym.envs.winterwheat import WinterWheat
 from pcse_gym.envs.sb3 import get_policy_kwargs, get_model_kwargs
 from pcse_gym.utils.eval import EvalCallback, determine_and_log_optimum
@@ -46,7 +46,7 @@ def args_func(parser):
     parser.add_argument('-d', "--device", type=str, default="cpu")
     parser.add_argument("-e", "--environment", type=int, default=2,
                         help="Crop growth model. 0 for LINTUL-3, 1 for WOFOST Classic N, 2 for WOFOST SNOMIN N")
-    parser.add_argument("-a", "--agent", type=str, default="PPO", help="RL agent. PPO, RPPO, GRU,"
+    parser.add_argument("-a", "--agent", type=str, default="PPO", help="RL agent. PPO, RPPO, RecurrentLagPPO, GRU,"
                                                                        "IndRNN, DiffNC, PosMLP, ATM or DQN")
     parser.add_argument("-r", "--reward", type=str, default="DEF",
                         help="Reward function. DEF, DEP, GRO, END, NUE or ANE")
@@ -86,6 +86,12 @@ def args_func(parser):
     parser.add_argument("--irs", type=str, default=None, dest='irs')
     parser.add_argument("--discrete-space", type=int, default=None, dest='discrete_space')
     parser.add_argument("--temporal-constraint", type=bool, default=False, dest='temporal_constraint')
+    parser.add_argument("--lag-cost-limit", type=float, default=0.0, dest="lag_cost_limit")
+    parser.add_argument("--lag-lambda-init", type=float, default=1.0, dest="lag_lambda_init")
+    parser.add_argument("--lag-lambda-lr", type=float, default=0.05, dest="lag_lambda_lr")
+    parser.add_argument("--lag-lambda-max", type=float, default=None, dest="lag_lambda_max")
+    parser.add_argument("--lag-cost-vf-coef", type=float, default=0.7, dest="lag_cost_vf_coef")
+    parser.add_argument("--lag-cost-key", type=str, default="cost", dest="lag_cost_key")
     parser.set_defaults(measure=False, vrr=False, noisy_measure=False, framework='sb3',
                         no_weather=False, random_feature=False, obs_mask=False, placeholder_val=-1.11,
                         normalize=False, random_init=False, m_multiplier=1, measure_all=False, random_weather=False,
@@ -136,7 +142,7 @@ def get_hyperparams(agent, pcse_env, no_weather, flag_po, mask_binary, actor_cri
                 hyperparams['policy_kwargs']['apply_masking'] = False
             else:
                 hyperparams['policy_kwargs']['apply_masking'] = True
-    if agent == 'RPPO':
+    if agent in ['RPPO', 'RecurrentLagPPO']:
         hyperparams = {'batch_size': 256, 'n_steps': 2048, 'learning_rate': 0.00001,
                        'ent_coef': 1.0 if decay_entropy else 0.0,
                        'clip_range': 0.15,
@@ -292,7 +298,13 @@ def train(log_dir, n_steps,
 
     env_pcse_train = Monitor(env_pcse_train)
 
-    env_pcse_train = ActionConstrainer(env_pcse_train, action_limit=action_limit, n_budget=n_budget, temporal=temporal_constraint)
+    if agent in ['LagPPO', 'RecurrentLagPPO']:
+        env_pcse_train = ConstraintCostWrapper(env_pcse_train, {
+            "cost_key": kwargs.get("lag_cost_key", "cost"),
+            "max_non_zero_actions": action_limit or 4,
+        })
+    else:
+        env_pcse_train = ActionConstrainer(env_pcse_train, action_limit=action_limit, n_budget=n_budget, temporal=temporal_constraint)
 
     device = kwargs.get('device')
     if device == 'cuda':
@@ -323,6 +335,20 @@ def train(log_dir, n_steps,
         rppo_policy = get_actor_critic_policy(masked_ac, agent)
         model = RecurrentPPO(rppo_policy, env_pcse_train, gamma=1, seed=seed, verbose=0, **hyperparams,
                              tensorboard_log=log_dir, device=device)
+    elif agent == 'RecurrentLagPPO':
+        from pcse_gym.agent.ppo_mod import RecurrentLagrangianPPO
+        env_pcse_train = wrapper_vectorized_env(env_pcse_train, flag_po,
+                                                multiproc=multiprocess, normalize=normalize, n_envs=n_envs)
+        print('Using RecurrentLagrangianPPO!')
+        model = RecurrentLagrangianPPO("MlpLstmPolicy", env_pcse_train, gamma=1, seed=seed, verbose=0,
+                                       cost_key=kwargs.get("lag_cost_key", "cost"),
+                                       cost_limit=kwargs.get("lag_cost_limit", 0.0),
+                                       lambda_init=kwargs.get("lag_lambda_init", 1.0),
+                                       lambda_lr=kwargs.get("lag_lambda_lr", 0.05),
+                                       lambda_max=kwargs.get("lag_lambda_max"),
+                                       cost_vf_coef=kwargs.get("lag_cost_vf_coef", 0.7),
+                                       **hyperparams,
+                                       tensorboard_log=log_dir, device=device)
     elif agent == 'MaskedPPO':
         from sb3_contrib import MaskablePPO as MaskedPPO
         env_pcse_train = wrapper_vectorized_env(env_pcse_train, flag_po,
@@ -332,13 +358,19 @@ def train(log_dir, n_steps,
         model = MaskedPPO('MlpPolicy', env_pcse_train, gamma=1, seed=seed, verbose=0, **hyperparams,
                           tensorboard_log=log_dir, device=device)
     elif agent == 'LagPPO':
-        from pcse_gym.agent.ppo_mod import LagrangianPPO, fertilization_action_constraint, CostActorCriticPolicy
+        from pcse_gym.agent.ppo_mod import LagrangianPPO, CostActorCriticPolicy
         env_pcse_train = wrapper_vectorized_env(env_pcse_train, flag_po,
                                                 multiproc=multiprocess, normalize=normalize, n_envs=n_envs)
         # policy = get_actor_critic_policy(masked_ac, agent)
         print('Using LagrangianPPO!')
         model = LagrangianPPO(CostActorCriticPolicy, env_pcse_train, gamma=1, seed=seed, verbose=0,
-                              constraint_fn=fertilization_action_constraint, **hyperparams,
+                              cost_key=kwargs.get("lag_cost_key", "cost"),
+                              cost_limit=kwargs.get("lag_cost_limit", 0.0),
+                              lambda_init=kwargs.get("lag_lambda_init", 1.0),
+                              lambda_lr=kwargs.get("lag_lambda_lr", 0.05),
+                              lambda_max=kwargs.get("lag_lambda_max"),
+                              cost_vf_coef=kwargs.get("lag_cost_vf_coef", 0.7),
+                              **hyperparams,
                               tensorboard_log=log_dir, device=device)
 
     irs_method = None
@@ -426,6 +458,10 @@ def train(log_dir, n_steps,
 
 
 if __name__ == '__main__':
+    if any(arg == "--config" or arg.startswith("--config=") for arg in sys.argv[1:]):
+        from train import main as config_main
+        raise SystemExit(config_main(sys.argv[1:]))
+
     parser = argparse.ArgumentParser()
     args = args_func(parser)
 
@@ -495,7 +531,10 @@ if __name__ == '__main__':
               'random_weather': args.random_weather, 'comet': args.comet, 'n_envs': args.nenvs, 'vision': args.vision,
               'masked_ac': args.masked_ac, 'decay_entropy': args.decay_entropy, 'nsteps': args.nsteps,
               'mask_later': args.mask_later, 'regl2': args.regl2, 'regl1': args.regl1, 'irs': args.irs,
-              'discrete_space': args.discrete_space, 'temporal_constraint': args.temporal_constraint}
+              'discrete_space': args.discrete_space, 'temporal_constraint': args.temporal_constraint,
+              'lag_cost_limit': args.lag_cost_limit, 'lag_lambda_init': args.lag_lambda_init,
+              'lag_lambda_lr': args.lag_lambda_lr, 'lag_lambda_max': args.lag_lambda_max,
+              'lag_cost_vf_coef': args.lag_cost_vf_coef, 'lag_cost_key': args.lag_cost_key}
 
     if args.decay_entropy:
         print('Training with entropy decay')

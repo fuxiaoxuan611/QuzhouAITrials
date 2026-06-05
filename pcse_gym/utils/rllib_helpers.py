@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 import pcse_gym.utils.defaults as defaults
 import pcse_gym.utils.eval as eval
+from pcse_gym.utils.episode_info import aggregate_episode_infos
 from pcse_gym.envs.winterwheat import WinterWheatRay
 from pcse_gym.envs.constraints import ActionConstrainer
 
@@ -224,7 +225,7 @@ class RayEvalCallback(DefaultCallbacks):
             terminated, truncated, prev_action, prev_reward, info = False, False, None, None, None
             infos_this_episode = []
 
-            while not terminated or truncated:
+            while not (terminated or truncated):
                 action, state, _ = policy.compute_single_action(obs=obs, state=state, prev_action=prev_action,
                                                                 prev_reward=prev_reward, info=info)
                 obs, reward, terminated, truncated, info = env.step(action)
@@ -233,13 +234,7 @@ class RayEvalCallback(DefaultCallbacks):
                 episode_reward += reward
                 episode_length += 1
                 infos_this_episode.append(info)
-            variables = infos_this_episode[0].keys()
-            episode_info = {}
-            for v in variables:
-                episode_info[v] = {}
-            for v in variables:
-                for info_dict in infos_this_episode:
-                    episode_info[v].update(info_dict[v])
+            episode_info = aggregate_episode_infos(infos_this_episode)
             if env.normalize:
                 episode_reward = env.norm.unnormalize_rew(episode_reward)
             episode_rewards.append(episode_reward)

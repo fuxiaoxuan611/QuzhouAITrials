@@ -316,11 +316,11 @@ def plot_variable(results_dict, variable='reward', cumulative_variables=get_cumu
     ax.set_ylabel(f"[{unit}]")
     if ylim is not None:
         ax.set_ylim(ylim)
-    if put_legend:
-        ax.legend()
-    else:
-        ax.legend()
-        ax.get_legend().set_visible(False)
+    # if put_legend:
+    #     ax.legend()
+    # else:
+    #     ax.legend()
+    #     ax.get_legend().set_visible(False)
     return ax
 
 

@@ -11,11 +11,11 @@ def reward_functions_without_baseline():
 
 
 def reward_functions_with_baseline():
-    return ['DEF', 'ANE', 'END']
+    return ['DEF', 'POT', 'ANE', 'END']
 
 
 def reward_function_list():
-    return ['DEF', 'GRO', 'DEP', 'ENY', 'NUE', 'DNU', 'HAR', 'NUP', 'END', 'FIN']
+    return ['DEF', 'POT', 'GRO', 'DEP', 'ENY', 'NUE', 'DNU', 'HAR', 'NUP', 'END', 'FIN']
 
 
 def reward_functions_end():
@@ -157,13 +157,39 @@ class Rewards:
             self.timestep = timestep
             self.costs_nitrogen = costs_nitrogen
 
-        def return_reward(self, output, amount, output_baseline=None, multiplier=1, obj=None):
+        def return_reward(self, output, amount, output_baseline=None, multiplier=1, obj=None, previous_date=None):
             obj.calculate_amount(amount)
-            growth = process_pcse.compute_growth_storage_organ(output, self.timestep, multiplier)
-            growth_baseline = process_pcse.compute_growth_storage_organ(output_baseline, self.timestep, multiplier)
+            growth = process_pcse.compute_growth_storage_organ(
+                output, self.timestep, multiplier, start_date=previous_date
+            )
+            growth_baseline = process_pcse.compute_growth_storage_organ(
+                output_baseline, self.timestep, multiplier, start_date=previous_date
+            )
             benefits = growth - growth_baseline
             costs = self.costs_nitrogen * amount
             reward = benefits - costs
+            return reward, growth
+
+    class POT(Rew):
+        """
+        Yield-gap reward relative to a daily, saturating-fertilizer policy.
+        """
+
+        def __init__(self, timestep, costs_nitrogen):
+            super().__init__(timestep, costs_nitrogen)
+            self.timestep = timestep
+            self.costs_nitrogen = costs_nitrogen
+
+        def return_reward(self, output, amount, output_baseline=None, multiplier=1, obj=None, previous_date=None):
+            obj.calculate_amount(amount)
+            growth = process_pcse.compute_growth_storage_organ(
+                output, self.timestep, multiplier, start_date=previous_date
+            )
+            potential_growth = process_pcse.compute_growth_storage_organ(
+                output_baseline, self.timestep, multiplier, start_date=previous_date
+            )
+            costs = self.costs_nitrogen * amount
+            reward = growth - potential_growth - costs
             return reward, growth
 
     class GRO(Rew):

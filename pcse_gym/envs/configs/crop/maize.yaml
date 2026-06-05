@@ -1,0 +1,1410 @@
+Version: 1.0.0
+Metadata:
+  Creator: Taoyu Ren, Hilmy Baja, from Quzhou maize calibration done by Taoyu Ren
+  Contact: hilmy.baja@wur.nl
+  Title: Calibrated maize crop parameters for Quzhou field-trial 2026
+  Date: '2026-06-03'
+  Language: EN
+  Format: YAML
+  Subject: WOFOST 8.1 maize crop parameters with Quzhou 2025 Opt treatment calibration
+  Rights: Derived from WOFOST crop parameters under their original license; local calibration artifacts
+    in this repository.
+CropParameters:
+  Varieties:
+    Grain_maize_201:
+      CO2EFFTB:
+      - - 40.0
+        - 0.0
+        - 360.0
+        - 1.0
+        - 720.0
+        - 1.0
+        - 1000.0
+        - 1.0
+        - 2000.0
+        - 1.0
+      - multiplication factor for EFF to account for an increasing CO2 concentration
+      - - PPM
+        - '-'
+      CO2TRATB:
+      - - 40.0
+        - 0.0
+        - 360.0
+        - 1.0
+        - 720.0
+        - 0.74
+        - 1000.0
+        - 0.74
+        - 2000.0
+        - 0.74
+      - multiplication factor for maximum transpiration rate TRAMX to account for an increasing CO2 concentration
+      - - PPM
+        - '-'
+      CO2AMAXTB:
+      - - 40.0
+        - 0.0
+        - 360.0
+        - 1.0
+        - 720.0
+        - 1.0
+        - 1000.0
+        - 1.0
+        - 2000.0
+        - 1.0
+      - multiplication factor for AMAX to account for an increasing CO2 concentration
+      - - PPM
+        - '-'
+      AMAX_SLP:
+      - 8.56
+      - slope of relationship between maximum leaf photosynthesis rate and specific leaf nitrogen
+      - - kg CO2 ha-1 h-1 (kg N m-2)-1
+      AMAX_LNB:
+      - 0.0
+      - specific leaf nitrogen below which there is no photosynthesis
+      - - kg N ha-1
+      TBASEM:
+      - 4.0
+      - Lower threshold temperature for emergence
+      - - C
+      TEFFMX:
+      - 30.0
+      - maximum effective temperature for emergence
+      - - C
+      TSUMEM:
+      - 110
+      - temperature sum from sowing to emergence
+      - - C.d
+      IDSL:
+      - 0
+      - indicates whether pre-anthesis development depends on temperature (=0), plus daylength (=1) ,
+        plus vernalization (=2)
+      - - NA
+      DLO:
+      - -99.0
+      - optimum daylength for development
+      - - hr
+      DLC:
+      - -99.0
+      - critical daylength (lower threshold)
+      - - hr
+      TSUM1:
+      - 1057.317178094011
+      - temperature sum from emergence to anthesis
+      - - C.d
+      TSUM2:
+      - 1408.469494462526
+      - temperature sum from anthesis to maturity
+      - - C.d
+      DTSMTB:
+      - - 0.0
+        - 0.0
+        - 6.0
+        - 0.0
+        - 30.0
+        - 24.0
+        - 35.0
+        - 24.0
+      - daily increase in temperature sum as function of daily average temperature
+      - - C
+        - C
+      DVSI:
+      - 0.0
+      - Initial development stage
+      - - '-'
+      DVSEND:
+      - 2.0
+      - development stage at harvest (= 2.0 at maturity)
+      - - '-'
+      VERNBASE:
+      - 14.0
+      - Base vernalization requirement
+      - - d
+      VERNSAT:
+      - 70.0
+      - Saturated vernalization requirement
+      - - d
+      VERNDVS:
+      - 0.3
+      - Critical DVS for vernalization to switch off
+      - - '-'
+      VERNRTB:
+      - - -8.0
+        - 0.0
+        - -4.0
+        - 0.0
+        - 3.0
+        - 1.0
+        - 10.0
+        - 1.0
+        - 17.0
+        - 0.0
+        - 20.0
+        - 0.0
+      - Temperature response function for vernalization
+      - - C
+        - '-'
+      TDWI:
+      - 44.9
+      - initial total crop dry weight
+      - - kg.ha-1
+      RGRLAI:
+      - 0.026
+      - maximum relative increase in LAI
+      - - d-1
+      SLATB:
+      - - 0.0
+        - 0.0029429395953406746
+        - 0.78
+        - 0.0013582798132341575
+        - 2.0
+        - 0.0013582798132341575
+      - specific leaf area as a function of DVS
+      - - '-'
+        - ha.kg-1
+      SPA:
+      - 0.0
+      - specific pod area
+      - - ha.kg-1
+      SSATB:
+      - - 0.0
+        - 0.0
+        - 2.0
+        - 0.0
+      - specific stem area as function of DVS
+      - - '-'
+        - ha.kg-1
+      SPAN:
+      - 113.5342689858802
+      - life span of leaves growing at 35 Celsius
+      - - d
+      TBASE:
+      - 10.0
+      - lower threshold temperature for ageing of leaves
+      - - C
+      KDIFTB:
+      - - 0.0
+        - 0.6
+        - 2.0
+        - 0.6
+      - extinction coefficient for diffuse visible light as function of DVS
+      - - '-'
+        - '-'
+      EFFTB:
+      - - 0.0
+        - 0.5067593541451147
+        - 40.0
+        - 0.5067593541451147
+      - initial light-use efficiency single leaf as function of daily mean temperature
+      - - C
+        - kg.ha-1.hr-1.J-1.m2.s1
+      AMAX_REF:
+      - 94.72328373930816
+      - maximum leaf CO2 assimilation rate
+      - - kg.ha-1.hr-1
+      KN:
+      - 0.4
+      - Extinction coefficient of leaf N concentration with canopy depth
+      - - '-'
+      REFCO2L:
+      - 360
+      - CO2 level at which AMAX and EFF were measured
+      - - PPM
+      TMPFTB:
+      - - 0.0
+        - 0.01
+        - 9.0
+        - 0.05
+        - 16.0
+        - 0.8
+        - 18.0
+        - 0.94
+        - 20.0
+        - 1.0
+        - 30.0
+        - 1.0
+        - 36.0
+        - 0.95
+        - 42.0
+        - 0.56
+      - reduction factor of AMAX as function of average daytime (*not* daily)  temperature
+      - - C
+        - '-'
+      TMNFTB:
+      - - 5.0
+        - 0.0
+        - 8.0
+        - 1.0
+      - reduction factor of gross assimilation rate as function of low minimum temperature
+      - - C
+        - '-'
+      CVL:
+      - 0.68
+      - efficiency of conversion into leaves
+      - - mass.mass-1
+      CVO:
+      - 0.671
+      - efficiency of conversion into storage organs
+      - - mass.mass-1
+      CVR:
+      - 0.69
+      - efficiency of conversion into roots
+      - - mass.mass-1
+      CVS:
+      - 0.658
+      - efficiency of conversion into stems
+      - - mass.mass-1
+      Q10:
+      - 2.0
+      - relative increase in respiration rate per 10 degrees Celsius temperature increase
+      - - '-'
+      RML:
+      - 0.03
+      - relative maintenance respiration rate of leaves
+      - - d-1
+      RMO:
+      - 0.01
+      - relative maintenance respiration rate of storage organs
+      - - d-1
+      RMR:
+      - 0.015
+      - relative maintenance respiration rate of roots
+      - - d-1
+      RMS:
+      - 0.015
+      - relative maintenance respiration rate of stems
+      - - d-1
+      RFSETB:
+      - - 0.0
+        - 1.0
+        - 1.5
+        - 1.0
+        - 1.75
+        - 0.75
+        - 2.0
+        - 0.25
+      - reduction factor for senescence as function of DVS
+      - - '-'
+        - '-'
+      FRTB:
+      - - 0.0
+        - 0.3371489397626038
+        - 0.1
+        - 0.3118627692804085
+        - 0.2
+        - 0.28657659879821323
+        - 0.3
+        - 0.26129042831601795
+        - 0.4
+        - 0.22757553433975758
+        - 0.5
+        - 0.19386064036349718
+        - 0.6
+        - 0.1601457463872368
+        - 0.7
+        - 0.1264308524109764
+        - 0.8
+        - 0.08428723494065095
+        - 0.9
+        - 0.05057234096439057
+        - 1.0
+        - 0.0
+        - 2.0
+        - 0.0
+      - fraction of total dry matter to roots as a function of DVS
+      - - '-'
+        - mass.mass-1
+      FLTB:
+      - - 0.0
+        - 0.23048934024881723
+        - 0.2
+        - 0.4781128138555089
+        - 0.4
+        - 0.5108190213639826
+        - 0.6
+        - 0.5013901715359829
+        - 0.8
+        - 0.45260963573776264
+        - 0.95
+        - 0.3576841555491636
+        - 1.05
+        - 0.27068269427840363
+        - 1.2
+        - 0.1592971753811501
+        - 1.4
+        - 0.09370670245584019
+        - 1.6
+        - 0.0
+        - 1.8
+        - 0.0
+        - 2.0
+        - 0.0
+      - fraction of total dry matter to leaves as a function of DVS
+      - - '-'
+        - mass.mass-1
+      FSTB:
+      - - 0.0
+        - 0.7695106597511827
+        - 0.2
+        - 0.5218871861444911
+        - 0.4
+        - 0.4891809786360174
+        - 0.6
+        - 0.49860982846401714
+        - 0.8
+        - 0.5473903642622373
+        - 0.95
+        - 0.6423158444508363
+        - 1.05
+        - 0.21972830126393195
+        - 1.2
+        - 0.14312285586585038
+        - 1.4
+        - 0.0571841716652175
+        - 1.6
+        - 0.09065245412276701
+        - 1.8
+        - 0.07054392044077884
+        - 2.0
+        - 0.06423348290557362
+      - fraction of total dry matter to stems as a function of DVS
+      - - '-'
+        - mass.mass-1
+      FOTB:
+      - - 0.0
+        - 0.0
+        - 0.2
+        - 0.0
+        - 0.4
+        - 0.0
+        - 0.6
+        - 0.0
+        - 0.8
+        - 0.0
+        - 0.95
+        - 0.0
+        - 1.05
+        - 0.5095890044576644
+        - 1.2
+        - 0.6975799687529995
+        - 1.4
+        - 0.8491091258789423
+        - 1.6
+        - 0.909347545877233
+        - 1.8
+        - 0.9294560795592212
+        - 2.0
+        - 0.9357665170944264
+      - fraction of total dry matter to storage organs as a function of DVS
+      - - '-'
+        - mass.mass-1
+      PERDL:
+      - 0.034
+      - maximum relative death rate of leaves due to water stress
+      - - '-'
+      RDRRTB:
+      - - 0.0
+        - 0.0
+        - 1.5
+        - 0.0
+        - 1.51
+        - 0.02
+        - 2.0
+        - 0.02
+      - Relative death rate of stems as a function of DVS
+      - - '-'
+        - kg.kg-1.d-1
+      RDRSTB:
+      - - 0.0
+        - 0.0
+        - 1.5
+        - 0.0
+        - 1.51
+        - 0.02
+        - 2.0
+        - 0.02
+      - relative death rate of roots as a function of DVS
+      - - '-'
+        - kg.kg-1.d-1
+      CFET:
+      - 1.0
+      - correction factor transpiration rate
+      - - '-'
+      DEPNR:
+      - 4.5
+      - crop group number for soil water depletion
+      - - '-'
+      IAIRDU:
+      - 0
+      - air ducts in roots present (=1) or not (=0)
+      - - NA
+      IOX:
+      - 0
+      - Oxygen stress effect enabled (=1) or not (=0)
+      - - NA
+      RDI:
+      - 10.0
+      - initial rooting depth
+      - - cm
+      RRI:
+      - 2.2
+      - maximum daily increase in rooting depth
+      - - cm.d-1
+      RDMCR:
+      - 90.0
+      - maximum rooting depth
+      - - cm
+      NMAXLV_TB:
+      - - 0.0
+        - 0.035344694997258876
+        - 0.45
+        - 0.03208033882646975
+        - 0.65
+        - 0.027214373361086154
+        - 0.9
+        - 0.023168505553843824
+        - 1.1
+        - 0.021076248330003235
+        - 1.45
+        - 0.020400707159872914
+        - 2.0
+        - 0.010428472191073273
+        - 2.1
+        - 0.010428472191073273
+      - maximum N concentration in leaves as function of development stage in kg N kg-1 dry biomass
+      - - '-'
+        - mass.mass-1
+      NMAXRT_FR:
+      - 0.34633722556286334
+      - maximum N concentration in roots as fraction of maximum N concentration in leaves
+      - - '-'
+      NMAXST_FR:
+      - 0.522682937333588
+      - maximum N concentration in stems as fraction of maximum N concentration in leaves
+      - - '-'
+      NMAXSO:
+      - 0.013434067106463157
+      - maximum P concentration in storage organs [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      NCRIT_FR:
+      - 1.0
+      - Critical N concentration as fraction of maximum N concentration
+      - - '-'
+      NRESIDLV:
+      - 0.004354203970692051
+      - residual N fraction in leaves [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      NRESIDST:
+      - 0.0011529588366908697
+      - residual N fraction in stems [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      NRESIDRT:
+      - 0.0030464601059127876
+      - residual N fraction in roots [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      TCNT:
+      - 10
+      - time coefficient for N translocation to storage organs
+      - - d
+      NFIX_FR:
+      - 0.0
+      - fraction of crop nitrogen uptake by biological fixation
+      - - '-'
+      PMAXLV_TB:
+      - - 0.0
+        - 0.0144
+        - 0.4
+        - 0.0096
+        - 0.7
+        - 0.0072
+        - 1.0
+        - 0.0048
+        - 2.0
+        - 0.004
+        - 2.1
+        - 0.004
+      - maximum P concentration in leaves as function of development stage in kg P kg-1 dry biomass
+      - - '-'
+        - mass.mass-1
+      PMAXRT_FR:
+      - 0.5
+      - maximum P concentration in roots as fraction of maximum P concentration in leaves
+      - - '-'
+      PMAXST_FR:
+      - 0.5
+      - maximum P concentration in stems as fraction of maximum P concentration in leaves
+      - - '-'
+      PMAXSO:
+      - 0.0027
+      - maximum P concentration in storage organs [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      PCRIT_FR:
+      - 1.0
+      - Critical P concentration as fraction of maximum P concentration
+      - - '-'
+      PRESIDLV:
+      - 0.00053
+      - residual P fraction in leaves [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      PRESIDST:
+      - 0.00027
+      - residual P fraction in stems [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      PRESIDRT:
+      - 0.00027
+      - residual P fraction in roots [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      TCPT:
+      - 10
+      - time coefficient for P translocation to storage organs
+      - - d
+      KMAXLV_TB:
+      - - 0.0
+        - 0.096
+        - 0.4
+        - 0.064
+        - 0.7
+        - 0.048
+        - 1.0
+        - 0.032
+        - 2.0
+        - 0.027
+        - 2.1
+        - 0.027
+      - maximum K concentration in leaves as function of development stage in kg K kg-1 dry biomass
+      - - '-'
+        - mass.mass-1
+      KMAXRT_FR:
+      - 0.5
+      - maximum K concentration in roots as fraction of maximum K concentration in leaves
+      - - '-'
+      KMAXST_FR:
+      - 0.5
+      - maximum K concentration in stems as fraction of maximum K concentration in leaves
+      - - '-'
+      KMAXSO:
+      - 0.0032
+      - maximum K concentration in storage organs [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      KCRIT_FR:
+      - 1.0
+      - Critical K concentration as fraction of maximum K concentration
+      - - '-'
+      KRESIDLV:
+      - 0.0067
+      - residual K fraction in leaves [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      KRESIDST:
+      - 0.0033
+      - residual K fraction in stems [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      KRESIDRT:
+      - 0.0033
+      - residual K fraction in roots [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      TCKT:
+      - 10
+      - time coefficient for K translocation to storage organs
+      - - d
+      DVS_NPK_STOP:
+      - 1.3
+      - development stage above which no crop N/P/K uptake occurs
+      - - '-'
+      DVS_NPK_TRANSL:
+      - 0.8
+      - development stage above which N/P/K translocation to storage organs does occur
+      - - '-'
+      NLAI_NPK:
+      - 1.0
+      - coefficient for the reduction due to nutrient NPK stress of the LAI increase (during juvenile
+        phase)
+      - - '-'
+      NSLA_NPK:
+      - 0.5
+      - coefficient for the effect of nutrient NPK stress on SLA reduction
+      - - '-'
+      NPART:
+      - 1.0
+      - coefficient for the effect of nutrient N stress on leaf allocation
+      - - '-'
+      NLUE_NPK:
+      - 1.1
+      - coefficient for the reduction of gross CO2 assimilation rate due to nutrient (N-P-K) stress
+      - - '-'
+      NPK_TRANSLRT_FR:
+      - 0.5
+      - NPK translocation from roots as a fraction of total NPK amounts translocated from leaves and stems
+      - - '-'
+      RDRLV_NPK:
+      - 0.013614440641798122
+      - maximum relative death rate of leaves due to nutrient NPK stress
+      - - '-'
+      RNUPTAKEMAX:
+      - 7.2
+      - Maximum rate of daily nitrogen uptake
+      - - kg.ha-1.d-1
+      DVS_N_TRANSL:
+      - 0.7319163775469654
+      - development stage above which N translocation to storage organs does occur
+      - - '-'
+      NSLLV_TB:
+      - - 0.0
+        - 0.9378548323189606
+        - 1.1
+        - 0.9378548323189606
+        - 1.5
+        - 1.4813600893390153
+        - 2.0
+        - 1.5678637625699547
+      - Increament factor rate stems due to N stress
+      - - '-'
+      RGRLAI_MIN:
+      - 0.004
+      - maximum relative increase in LAI under maximum nitrogen stress
+      - - ha.ha-1.d-1
+      REALLOC_DVS:
+      - 3.0
+      - Development stage when reallocation from stems and leaves to storage organs starts. DVS values
+        > 2.0 mean that reallocation is not enabled for this crop.
+      - - '-'
+      REALLOC_STEM_FRACTION:
+      - 0.2
+      - Fraction of stem biomass that can be reallocated to the storage organs
+      - - kg.kg-1
+      REALLOC_LEAF_FRACTION:
+      - 0.0
+      - Fraction of stem biomass that can be reallocated to the storage organs
+      - - kg.kg-1
+      REALLOC_STEM_RATE:
+      - 0.0415
+      - Relative rate of reallocation of stem biomass
+      - - d-1
+      REALLOC_LEAF_RATE:
+      - 0.0
+      - Relative rate of reallocation of leaf biomass
+      - - d-1
+      REALLOC_EFFICIENCY:
+      - 0.95
+      - Conversion efficiency of reallocated stem and leaf dry matter into storage organ dry matter
+      - - kg.kg-1
+      Metadata:
+        Creator: Allard de Wit
+        Contributor: E.R. Boons-Prins, G.H.J. de Koning, CA. van Diepen, F.W.T. Penning de Vries
+        Contact: allard.dewit@wur.nl
+        Publisher: Wageningen Environmental Research
+        Title: Quzhou 2025 calibrated WOFOST 8.1 SNOMIN maize parameters
+        Date: '2026-06-03'
+        Language: EN
+        Format: YAML
+        Subject: Quzhou County, Hebei, China maize calibration for RL experiments
+        Description: Base WOFOST 8.1 Grain_maize_201 parameters with Quzhou 2025 Opt treatment process
+          and nitrogen overrides from quzhou_maize/scripts/run_final_model.py. Use together with quzhou_maize/inputs/agro_opt_2025.yaml,
+          site_quzhou_n_module_final.yaml, soil_quzhou_4layer_whcns_final.yaml, and weather_quzhou_2025_power.xlsx.
+        Identifier: null
+        Relation: null
+        Source: https://raw.githubusercontent.com/herman-berghuijs/WOFOST_crop_parameters/wofost81; local
+          calibration files quzhou_maize/outputs/final_process_parameters_opt_2025.json and final_n_clean_parameters_opt_2025.json
+        Type: Report
+        Coverage:
+          Region: Quzhou County, Hebei, China
+          Temporal: summer maize 2025 Opt treatment
+        Rights: European Union Public License (EUPL)
+        Keyword: maize; Zea mays; WOFOST 8.1; SNOMIN; Quzhou; reinforcement learning
+    Quzhou_maize_2025_Opt:
+      CO2EFFTB:
+      - - 40.0
+        - 0.0
+        - 360.0
+        - 1.0
+        - 720.0
+        - 1.0
+        - 1000.0
+        - 1.0
+        - 2000.0
+        - 1.0
+      - multiplication factor for EFF to account for an increasing CO2 concentration
+      - - PPM
+        - '-'
+      CO2TRATB:
+      - - 40.0
+        - 0.0
+        - 360.0
+        - 1.0
+        - 720.0
+        - 0.74
+        - 1000.0
+        - 0.74
+        - 2000.0
+        - 0.74
+      - multiplication factor for maximum transpiration rate TRAMX to account for an increasing CO2 concentration
+      - - PPM
+        - '-'
+      CO2AMAXTB:
+      - - 40.0
+        - 0.0
+        - 360.0
+        - 1.0
+        - 720.0
+        - 1.0
+        - 1000.0
+        - 1.0
+        - 2000.0
+        - 1.0
+      - multiplication factor for AMAX to account for an increasing CO2 concentration
+      - - PPM
+        - '-'
+      AMAX_SLP:
+      - 8.56
+      - slope of relationship between maximum leaf photosynthesis rate and specific leaf nitrogen
+      - - kg CO2 ha-1 h-1 (kg N m-2)-1
+      AMAX_LNB:
+      - 0.0
+      - specific leaf nitrogen below which there is no photosynthesis
+      - - kg N ha-1
+      TBASEM:
+      - 4.0
+      - Lower threshold temperature for emergence
+      - - C
+      TEFFMX:
+      - 30.0
+      - maximum effective temperature for emergence
+      - - C
+      TSUMEM:
+      - 110
+      - temperature sum from sowing to emergence
+      - - C.d
+      IDSL:
+      - 0
+      - indicates whether pre-anthesis development depends on temperature (=0), plus daylength (=1) ,
+        plus vernalization (=2)
+      - - NA
+      DLO:
+      - -99.0
+      - optimum daylength for development
+      - - hr
+      DLC:
+      - -99.0
+      - critical daylength (lower threshold)
+      - - hr
+      TSUM1:
+      - 1057.317178094011
+      - temperature sum from emergence to anthesis
+      - - C.d
+      TSUM2:
+      - 1408.469494462526
+      - temperature sum from anthesis to maturity
+      - - C.d
+      DTSMTB:
+      - - 0.0
+        - 0.0
+        - 6.0
+        - 0.0
+        - 30.0
+        - 24.0
+        - 35.0
+        - 24.0
+      - daily increase in temperature sum as function of daily average temperature
+      - - C
+        - C
+      DVSI:
+      - 0.0
+      - Initial development stage
+      - - '-'
+      DVSEND:
+      - 2.0
+      - development stage at harvest (= 2.0 at maturity)
+      - - '-'
+      VERNBASE:
+      - 14.0
+      - Base vernalization requirement
+      - - d
+      VERNSAT:
+      - 70.0
+      - Saturated vernalization requirement
+      - - d
+      VERNDVS:
+      - 0.3
+      - Critical DVS for vernalization to switch off
+      - - '-'
+      VERNRTB:
+      - - -8.0
+        - 0.0
+        - -4.0
+        - 0.0
+        - 3.0
+        - 1.0
+        - 10.0
+        - 1.0
+        - 17.0
+        - 0.0
+        - 20.0
+        - 0.0
+      - Temperature response function for vernalization
+      - - C
+        - '-'
+      TDWI:
+      - 44.9
+      - initial total crop dry weight
+      - - kg.ha-1
+      RGRLAI:
+      - 0.026
+      - maximum relative increase in LAI
+      - - d-1
+      SLATB:
+      - - 0.0
+        - 0.0029429395953406746
+        - 0.78
+        - 0.0013582798132341575
+        - 2.0
+        - 0.0013582798132341575
+      - specific leaf area as a function of DVS
+      - - '-'
+        - ha.kg-1
+      SPA:
+      - 0.0
+      - specific pod area
+      - - ha.kg-1
+      SSATB:
+      - - 0.0
+        - 0.0
+        - 2.0
+        - 0.0
+      - specific stem area as function of DVS
+      - - '-'
+        - ha.kg-1
+      SPAN:
+      - 113.5342689858802
+      - life span of leaves growing at 35 Celsius
+      - - d
+      TBASE:
+      - 10.0
+      - lower threshold temperature for ageing of leaves
+      - - C
+      KDIFTB:
+      - - 0.0
+        - 0.6
+        - 2.0
+        - 0.6
+      - extinction coefficient for diffuse visible light as function of DVS
+      - - '-'
+        - '-'
+      EFFTB:
+      - - 0.0
+        - 0.5067593541451147
+        - 40.0
+        - 0.5067593541451147
+      - initial light-use efficiency single leaf as function of daily mean temperature
+      - - C
+        - kg.ha-1.hr-1.J-1.m2.s1
+      AMAX_REF:
+      - 94.72328373930816
+      - maximum leaf CO2 assimilation rate
+      - - kg.ha-1.hr-1
+      KN:
+      - 0.4
+      - Extinction coefficient of leaf N concentration with canopy depth
+      - - '-'
+      REFCO2L:
+      - 360
+      - CO2 level at which AMAX and EFF were measured
+      - - PPM
+      TMPFTB:
+      - - 0.0
+        - 0.01
+        - 9.0
+        - 0.05
+        - 16.0
+        - 0.8
+        - 18.0
+        - 0.94
+        - 20.0
+        - 1.0
+        - 30.0
+        - 1.0
+        - 36.0
+        - 0.95
+        - 42.0
+        - 0.56
+      - reduction factor of AMAX as function of average daytime (*not* daily)  temperature
+      - - C
+        - '-'
+      TMNFTB:
+      - - 5.0
+        - 0.0
+        - 8.0
+        - 1.0
+      - reduction factor of gross assimilation rate as function of low minimum temperature
+      - - C
+        - '-'
+      CVL:
+      - 0.68
+      - efficiency of conversion into leaves
+      - - mass.mass-1
+      CVO:
+      - 0.671
+      - efficiency of conversion into storage organs
+      - - mass.mass-1
+      CVR:
+      - 0.69
+      - efficiency of conversion into roots
+      - - mass.mass-1
+      CVS:
+      - 0.658
+      - efficiency of conversion into stems
+      - - mass.mass-1
+      Q10:
+      - 2.0
+      - relative increase in respiration rate per 10 degrees Celsius temperature increase
+      - - '-'
+      RML:
+      - 0.03
+      - relative maintenance respiration rate of leaves
+      - - d-1
+      RMO:
+      - 0.01
+      - relative maintenance respiration rate of storage organs
+      - - d-1
+      RMR:
+      - 0.015
+      - relative maintenance respiration rate of roots
+      - - d-1
+      RMS:
+      - 0.015
+      - relative maintenance respiration rate of stems
+      - - d-1
+      RFSETB:
+      - - 0.0
+        - 1.0
+        - 1.5
+        - 1.0
+        - 1.75
+        - 0.75
+        - 2.0
+        - 0.25
+      - reduction factor for senescence as function of DVS
+      - - '-'
+        - '-'
+      FRTB:
+      - - 0.0
+        - 0.3371489397626038
+        - 0.1
+        - 0.3118627692804085
+        - 0.2
+        - 0.28657659879821323
+        - 0.3
+        - 0.26129042831601795
+        - 0.4
+        - 0.22757553433975758
+        - 0.5
+        - 0.19386064036349718
+        - 0.6
+        - 0.1601457463872368
+        - 0.7
+        - 0.1264308524109764
+        - 0.8
+        - 0.08428723494065095
+        - 0.9
+        - 0.05057234096439057
+        - 1.0
+        - 0.0
+        - 2.0
+        - 0.0
+      - fraction of total dry matter to roots as a function of DVS
+      - - '-'
+        - mass.mass-1
+      FLTB:
+      - - 0.0
+        - 0.23048934024881723
+        - 0.2
+        - 0.4781128138555089
+        - 0.4
+        - 0.5108190213639826
+        - 0.6
+        - 0.5013901715359829
+        - 0.8
+        - 0.45260963573776264
+        - 0.95
+        - 0.3576841555491636
+        - 1.05
+        - 0.27068269427840363
+        - 1.2
+        - 0.1592971753811501
+        - 1.4
+        - 0.09370670245584019
+        - 1.6
+        - 0.0
+        - 1.8
+        - 0.0
+        - 2.0
+        - 0.0
+      - fraction of total dry matter to leaves as a function of DVS
+      - - '-'
+        - mass.mass-1
+      FSTB:
+      - - 0.0
+        - 0.7695106597511827
+        - 0.2
+        - 0.5218871861444911
+        - 0.4
+        - 0.4891809786360174
+        - 0.6
+        - 0.49860982846401714
+        - 0.8
+        - 0.5473903642622373
+        - 0.95
+        - 0.6423158444508363
+        - 1.05
+        - 0.21972830126393195
+        - 1.2
+        - 0.14312285586585038
+        - 1.4
+        - 0.0571841716652175
+        - 1.6
+        - 0.09065245412276701
+        - 1.8
+        - 0.07054392044077884
+        - 2.0
+        - 0.06423348290557362
+      - fraction of total dry matter to stems as a function of DVS
+      - - '-'
+        - mass.mass-1
+      FOTB:
+      - - 0.0
+        - 0.0
+        - 0.2
+        - 0.0
+        - 0.4
+        - 0.0
+        - 0.6
+        - 0.0
+        - 0.8
+        - 0.0
+        - 0.95
+        - 0.0
+        - 1.05
+        - 0.5095890044576644
+        - 1.2
+        - 0.6975799687529995
+        - 1.4
+        - 0.8491091258789423
+        - 1.6
+        - 0.909347545877233
+        - 1.8
+        - 0.9294560795592212
+        - 2.0
+        - 0.9357665170944264
+      - fraction of total dry matter to storage organs as a function of DVS
+      - - '-'
+        - mass.mass-1
+      PERDL:
+      - 0.034
+      - maximum relative death rate of leaves due to water stress
+      - - '-'
+      RDRRTB:
+      - - 0.0
+        - 0.0
+        - 1.5
+        - 0.0
+        - 1.51
+        - 0.02
+        - 2.0
+        - 0.02
+      - Relative death rate of stems as a function of DVS
+      - - '-'
+        - kg.kg-1.d-1
+      RDRSTB:
+      - - 0.0
+        - 0.0
+        - 1.5
+        - 0.0
+        - 1.51
+        - 0.02
+        - 2.0
+        - 0.02
+      - relative death rate of roots as a function of DVS
+      - - '-'
+        - kg.kg-1.d-1
+      CFET:
+      - 1.0
+      - correction factor transpiration rate
+      - - '-'
+      DEPNR:
+      - 4.5
+      - crop group number for soil water depletion
+      - - '-'
+      IAIRDU:
+      - 0
+      - air ducts in roots present (=1) or not (=0)
+      - - NA
+      IOX:
+      - 0
+      - Oxygen stress effect enabled (=1) or not (=0)
+      - - NA
+      RDI:
+      - 10.0
+      - initial rooting depth
+      - - cm
+      RRI:
+      - 2.2
+      - maximum daily increase in rooting depth
+      - - cm.d-1
+      RDMCR:
+      - 90.0
+      - maximum rooting depth
+      - - cm
+      NMAXLV_TB:
+      - - 0.0
+        - 0.035344694997258876
+        - 0.45
+        - 0.03208033882646975
+        - 0.65
+        - 0.027214373361086154
+        - 0.9
+        - 0.023168505553843824
+        - 1.1
+        - 0.021076248330003235
+        - 1.45
+        - 0.020400707159872914
+        - 2.0
+        - 0.010428472191073273
+        - 2.1
+        - 0.010428472191073273
+      - maximum N concentration in leaves as function of development stage in kg N kg-1 dry biomass
+      - - '-'
+        - mass.mass-1
+      NMAXRT_FR:
+      - 0.34633722556286334
+      - maximum N concentration in roots as fraction of maximum N concentration in leaves
+      - - '-'
+      NMAXST_FR:
+      - 0.522682937333588
+      - maximum N concentration in stems as fraction of maximum N concentration in leaves
+      - - '-'
+      NMAXSO:
+      - 0.013434067106463157
+      - maximum P concentration in storage organs [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      NCRIT_FR:
+      - 1.0
+      - Critical N concentration as fraction of maximum N concentration
+      - - '-'
+      NRESIDLV:
+      - 0.004354203970692051
+      - residual N fraction in leaves [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      NRESIDST:
+      - 0.0011529588366908697
+      - residual N fraction in stems [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      NRESIDRT:
+      - 0.0030464601059127876
+      - residual N fraction in roots [kg N kg-1 dry biomass]
+      - - mass.mass-1
+      TCNT:
+      - 10
+      - time coefficient for N translocation to storage organs
+      - - d
+      NFIX_FR:
+      - 0.0
+      - fraction of crop nitrogen uptake by biological fixation
+      - - '-'
+      PMAXLV_TB:
+      - - 0.0
+        - 0.0144
+        - 0.4
+        - 0.0096
+        - 0.7
+        - 0.0072
+        - 1.0
+        - 0.0048
+        - 2.0
+        - 0.004
+        - 2.1
+        - 0.004
+      - maximum P concentration in leaves as function of development stage in kg P kg-1 dry biomass
+      - - '-'
+        - mass.mass-1
+      PMAXRT_FR:
+      - 0.5
+      - maximum P concentration in roots as fraction of maximum P concentration in leaves
+      - - '-'
+      PMAXST_FR:
+      - 0.5
+      - maximum P concentration in stems as fraction of maximum P concentration in leaves
+      - - '-'
+      PMAXSO:
+      - 0.0027
+      - maximum P concentration in storage organs [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      PCRIT_FR:
+      - 1.0
+      - Critical P concentration as fraction of maximum P concentration
+      - - '-'
+      PRESIDLV:
+      - 0.00053
+      - residual P fraction in leaves [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      PRESIDST:
+      - 0.00027
+      - residual P fraction in stems [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      PRESIDRT:
+      - 0.00027
+      - residual P fraction in roots [kg P kg-1 dry biomass]
+      - - mass.mass-1
+      TCPT:
+      - 10
+      - time coefficient for P translocation to storage organs
+      - - d
+      KMAXLV_TB:
+      - - 0.0
+        - 0.096
+        - 0.4
+        - 0.064
+        - 0.7
+        - 0.048
+        - 1.0
+        - 0.032
+        - 2.0
+        - 0.027
+        - 2.1
+        - 0.027
+      - maximum K concentration in leaves as function of development stage in kg K kg-1 dry biomass
+      - - '-'
+        - mass.mass-1
+      KMAXRT_FR:
+      - 0.5
+      - maximum K concentration in roots as fraction of maximum K concentration in leaves
+      - - '-'
+      KMAXST_FR:
+      - 0.5
+      - maximum K concentration in stems as fraction of maximum K concentration in leaves
+      - - '-'
+      KMAXSO:
+      - 0.0032
+      - maximum K concentration in storage organs [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      KCRIT_FR:
+      - 1.0
+      - Critical K concentration as fraction of maximum K concentration
+      - - '-'
+      KRESIDLV:
+      - 0.0067
+      - residual K fraction in leaves [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      KRESIDST:
+      - 0.0033
+      - residual K fraction in stems [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      KRESIDRT:
+      - 0.0033
+      - residual K fraction in roots [kg K kg-1 dry biomass]
+      - - mass.mass-1
+      TCKT:
+      - 10
+      - time coefficient for K translocation to storage organs
+      - - d
+      DVS_NPK_STOP:
+      - 1.3
+      - development stage above which no crop N/P/K uptake occurs
+      - - '-'
+      DVS_NPK_TRANSL:
+      - 0.8
+      - development stage above which N/P/K translocation to storage organs does occur
+      - - '-'
+      NLAI_NPK:
+      - 1.0
+      - coefficient for the reduction due to nutrient NPK stress of the LAI increase (during juvenile
+        phase)
+      - - '-'
+      NSLA_NPK:
+      - 0.5
+      - coefficient for the effect of nutrient NPK stress on SLA reduction
+      - - '-'
+      NPART:
+      - 1.0
+      - coefficient for the effect of nutrient N stress on leaf allocation
+      - - '-'
+      NLUE_NPK:
+      - 1.1
+      - coefficient for the reduction of gross CO2 assimilation rate due to nutrient (N-P-K) stress
+      - - '-'
+      NPK_TRANSLRT_FR:
+      - 0.5
+      - NPK translocation from roots as a fraction of total NPK amounts translocated from leaves and stems
+      - - '-'
+      RDRLV_NPK:
+      - 0.013614440641798122
+      - maximum relative death rate of leaves due to nutrient NPK stress
+      - - '-'
+      RNUPTAKEMAX:
+      - 7.2
+      - Maximum rate of daily nitrogen uptake
+      - - kg.ha-1.d-1
+      DVS_N_TRANSL:
+      - 0.7319163775469654
+      - development stage above which N translocation to storage organs does occur
+      - - '-'
+      NSLLV_TB:
+      - - 0.0
+        - 0.9378548323189606
+        - 1.1
+        - 0.9378548323189606
+        - 1.5
+        - 1.4813600893390153
+        - 2.0
+        - 1.5678637625699547
+      - Increament factor rate stems due to N stress
+      - - '-'
+      RGRLAI_MIN:
+      - 0.004
+      - maximum relative increase in LAI under maximum nitrogen stress
+      - - ha.ha-1.d-1
+      REALLOC_DVS:
+      - 3.0
+      - Development stage when reallocation from stems and leaves to storage organs starts. DVS values
+        > 2.0 mean that reallocation is not enabled for this crop.
+      - - '-'
+      REALLOC_STEM_FRACTION:
+      - 0.2
+      - Fraction of stem biomass that can be reallocated to the storage organs
+      - - kg.kg-1
+      REALLOC_LEAF_FRACTION:
+      - 0.0
+      - Fraction of stem biomass that can be reallocated to the storage organs
+      - - kg.kg-1
+      REALLOC_STEM_RATE:
+      - 0.0415
+      - Relative rate of reallocation of stem biomass
+      - - d-1
+      REALLOC_LEAF_RATE:
+      - 0.0
+      - Relative rate of reallocation of leaf biomass
+      - - d-1
+      REALLOC_EFFICIENCY:
+      - 0.95
+      - Conversion efficiency of reallocated stem and leaf dry matter into storage organ dry matter
+      - - kg.kg-1
+      Metadata:
+        Creator: Allard de Wit
+        Contributor: E.R. Boons-Prins, G.H.J. de Koning, CA. van Diepen, F.W.T. Penning de Vries
+        Contact: allard.dewit@wur.nl
+        Publisher: Wageningen Environmental Research
+        Title: Quzhou 2025 calibrated WOFOST 8.1 SNOMIN maize parameters
+        Date: '2026-06-03'
+        Language: EN
+        Format: YAML
+        Subject: Quzhou County, Hebei, China maize calibration for RL experiments
+        Description: Base WOFOST 8.1 Grain_maize_201 parameters with Quzhou 2025 Opt treatment process
+          and nitrogen overrides from quzhou_maize/scripts/run_final_model.py. Use together with quzhou_maize/inputs/agro_opt_2025.yaml,
+          site_quzhou_n_module_final.yaml, soil_quzhou_4layer_whcns_final.yaml, and weather_quzhou_2025_power.xlsx.
+          Alias variety for explicit Quzhou RL configuration.
+        Identifier: null
+        Relation: null
+        Source: https://raw.githubusercontent.com/herman-berghuijs/WOFOST_crop_parameters/wofost81; local
+          calibration files quzhou_maize/outputs/final_process_parameters_opt_2025.json and final_n_clean_parameters_opt_2025.json
+        Type: Report
+        Coverage:
+          Region: Quzhou County, Hebei, China
+          Temporal: summer maize 2025 Opt treatment
+        Rights: European Union Public License (EUPL)
+        Keyword: maize; Zea mays; WOFOST 8.1; SNOMIN; Quzhou; reinforcement learning
