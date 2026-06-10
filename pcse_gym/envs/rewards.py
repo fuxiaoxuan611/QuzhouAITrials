@@ -7,11 +7,11 @@ import pcse_gym.utils.process_pcse_output as process_pcse
 
 
 def reward_functions_without_baseline():
-    return ['GRO', 'DEP', 'ENY', 'NUE', 'HAR', 'NUP']
+    return ['GRO', 'DEP', 'ENY', 'HAR', 'NUP']
 
 
 def reward_functions_with_baseline():
-    return ['DEF', 'POT', 'ANE', 'END']
+    return ['DEF', 'POT', 'ANE', 'END', 'NUE']
 
 
 def reward_function_list():
@@ -532,14 +532,36 @@ class Rewards:
             self.timestep = timestep
             self.costs_nitrogen = costs_nitrogen
 
-        def calculate_reward_nue(self, n_fertilized, n_output, year=None, start=None, end=None, no3_depo=None, nh4_depo=None):
+        @staticmethod
+        def _finite_or_zero(value):
+            if value is None or not np.isfinite(value):
+                return 0.0
+            return float(value)
+
+        @classmethod
+        def _episode_storage_organ_growth(cls, output, multiplier=1):
+            var_name = process_pcse.get_name_storage_organ(output[0].keys())
+            initial_yield = cls._finite_or_zero(output[0].get(var_name))
+            final_yield = cls._finite_or_zero(output[-1].get(var_name))
+            return (final_yield - initial_yield) / multiplier
+
+        def calculate_yield_improvement(self, output=None, output_baseline=None, multiplier=1):
+            if output and output_baseline:
+                agent_growth = self._episode_storage_organ_growth(output, multiplier)
+                baseline_growth = self._episode_storage_organ_growth(output_baseline, multiplier)
+                return agent_growth - baseline_growth
+            return super().dump_cumulative_positive_reward
+
+        def calculate_reward_nue(
+                self, n_fertilized, n_output, year=None, start=None, end=None, no3_depo=None, nh4_depo=None,
+                output=None, output_baseline=None, multiplier=1):
             if year is None or start is None or end is None:
                 nue = calculate_nue(n_fertilized, n_output, no3_depo=no3_depo, nh4_depo=nh4_depo)
                 n_surplus = get_surplus_n(n_fertilized, n_output, no3_depo=no3_depo, nh4_depo=nh4_depo)
             else:
                 nue = calculate_nue(n_fertilized, n_output, year=year, start=start, end=end)
                 n_surplus = get_surplus_n(n_fertilized, n_output, year=year, start=start, end=end)
-            end_yield = super().dump_cumulative_positive_reward
+            end_yield = self.calculate_yield_improvement(output, output_baseline, multiplier)
 
             return self.formula_nue(n_surplus, nue, end_yield)
 
@@ -617,13 +639,17 @@ class Rewards:
             return base_nsurp * base_nue
 
         def n_surplus_formula_piecewise(self, n_surplus, nue, nsurp_width=100, nue_width=1):
-            base_nsurp = max(0, min(1, 1 - (abs(n_surplus - 20) - 20) / nsurp_width))
+            base_nsurp = max(0, min(1, 1 - (abs(n_surplus - 40) - 40) / nsurp_width))
             base_nue = self.nue_condition_simple(nue)
             return base_nsurp * base_nue
 
         @staticmethod
         def normalize_yield(y, maxy=get_max_yield(), miny=get_min_yield()):
             return max(0, (y - miny) / (maxy - miny))
+
+        @staticmethod
+        def yield_improvement_bonus(yield_improvement, scale=0.001):
+            return max(0.0, yield_improvement) * scale
 
         @staticmethod
         def include_yield_req(req, y):
@@ -634,8 +660,8 @@ class Rewards:
                 nsurp_value = self.n_surplus_formula(n_surplus, nue)
             else:
                 nsurp_value = self.n_surplus_formula_piecewise(n_surplus, nue)
-            normalized_yield = self.normalize_yield(end_yield)
-            return nsurp_value + self.include_yield_req(nsurp_value, normalized_yield)
+            yield_bonus = self.yield_improvement_bonus(end_yield)
+            return nsurp_value + self.include_yield_req(nsurp_value, yield_bonus)
 
         def reset(self):
             super().reset()
@@ -695,7 +721,7 @@ class ActionsContainer:
         return self.actions
 
 
-def calculate_nue(n_input, n_so, year=None, start=None, end=None, n_seed=3.5, no3_depo=None, nh4_depo=None):
+def calculate_nue(n_input, n_so, year=None, start=None, end=None, n_seed=0.4, no3_depo=None, nh4_depo=None):
     n_in = input_nue(n_input, year=year, n_seed=n_seed, start=start, end=end, no3_depo=no3_depo, nh4_depo=nh4_depo)
     nue = n_so / n_in
     return nue

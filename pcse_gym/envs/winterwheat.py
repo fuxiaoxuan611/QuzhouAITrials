@@ -309,10 +309,10 @@ class WinterWheat(gym.Env):
         reward, growth = self.reward_class.return_reward(output, amount, **reward_kwargs)
         self.rewards_obj.update_profit(output, amount, year=self.sb3_env.date.year,
                                        multiplier=self.sb3_env.multiplier_amount)
-        reward += self.terminate_reward_signal(output, reward, terminated)
+        reward += self.terminate_reward_signal(output, reward, terminated, output_baseline=output_baseline)
         return reward, growth
 
-    def terminate_reward_signal(self, output, reward, terminated):
+    def terminate_reward_signal(self, output, reward, terminated, output_baseline=None):
         if terminated and self.reward_function in reward_functions_end():
             return self.reward_container.dump_cumulative_positive_reward - abs(reward)
 
@@ -324,7 +324,10 @@ class WinterWheat(gym.Env):
                 n_fertilized=self.reward_container.get_total_fertilization * 10,
                 n_output=process_pcse.get_n_storage_organ(output),
                 no3_depo=get_no3_deposition_pcse(output),
-                nh4_depo=get_nh4_deposition_pcse(output),)
+                nh4_depo=get_nh4_deposition_pcse(output),
+                output=output,
+                output_baseline=output_baseline,
+                multiplier=self.sb3_env.multiplier_amount,)
             )
         return 0
 
