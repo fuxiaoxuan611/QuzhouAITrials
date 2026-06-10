@@ -143,6 +143,22 @@ def compute_average(results_dict: dict, filter_list=None):
     return sum(filtered_results) / len(filtered_results)
 
 
+def unique_preserve_order(values):
+    unique_values = []
+    for value in values:
+        if value not in unique_values:
+            unique_values.append(value)
+    return unique_values
+
+
+def evaluated_results_for_figures(result_model, years, locations):
+    return {
+        key: result_model[key]
+        for key in ((year, location) for year in years for location in locations)
+        if key in result_model
+    }
+
+
 def get_action_probs(dis: MultiCategoricalDistribution, po_features, crop_features, measure_all):
     if po_features:
         dict = {}
@@ -644,18 +660,18 @@ class EvalCallback(BaseCallback):
 
     def get_locations(self, log_training=False):
         if log_training:
-            locations = list(set(self.test_locations + self.train_locations))
+            locations = unique_preserve_order(self.test_locations + self.train_locations)
         else:
-            locations = list(set(self.test_locations))
+            locations = unique_preserve_order(self.test_locations)
         return locations
 
     def get_years(self, log_training=False):
         if log_training and not self.random_weather:
-            years = list(set(self.test_years + self.train_years))
+            years = unique_preserve_order(self.test_years + self.train_years)
         elif log_training and self.random_weather:
-            years = list(set(self.test_years + list(np.random.choice(self.train_years, 16))))
+            years = unique_preserve_order(self.test_years + list(np.random.choice(self.train_years, 16)))
         else:
-            years = list(set(self.test_years))
+            years = unique_preserve_order(self.test_years)
         return years
 
     def get_do_log_training(self):
@@ -833,15 +849,18 @@ class EvalCallback(BaseCallback):
             #                                        clip_obs=10., clip_reward=50., gamma=1)
             env_pcse_evaluation.training = False
             n_year_loc = 0
+            eval_years = self.get_years(log_training)
+            eval_locations = self.get_locations(log_training)
+            total_eval = len(eval_years) * len(eval_locations)
 
-            total_eval = len(self.get_years(log_training)*len(self.get_locations(log_training)))
-            years_bar = tqdm(self.get_years(log_training))
+            years_bar = tqdm(eval_years)
             for iy, year in enumerate(years_bar, 1):
-                for il, test_location in enumerate(self.get_locations(log_training), 1):
+                for il, test_location in enumerate(eval_locations, 1):
                     if not self.check_year_combination(year, test_location):
                         continue
+                    progress_index = il + (len(eval_locations) * (iy - 1))
                     years_bar.set_description(f'Evaluating {year}, {str(test_location): <{11}} | '
-                                              f'{str(il+(len(self.get_locations(log_training))*iy)): <{3}}/{total_eval}')
+                                              f'{str(progress_index): <{3}}/{total_eval}')
                     env_pcse_evaluation.env_method('overwrite_year', year)
                     env_pcse_evaluation.env_method('overwrite_location', test_location)
                     env_pcse_evaluation.reset()
@@ -897,7 +916,7 @@ class EvalCallback(BaseCallback):
                       f'Avg. Nsurplus: {avg_nsurplus:.4f}\n'
                       f'Action decision steps: {acts}')
 
-            for test_location in list(set(self.test_locations)):
+            for test_location in unique_preserve_order(self.test_locations):
                 test_keys = [(a, test_location) for a in self.test_years]
                 self.logger.record(f'eval/NUE-average-test-{test_location}', compute_average(NUE, test_keys))
                 self.logger.record(f'eval/NUE-median-test-{test_location}', compute_median(NUE, test_keys))
@@ -962,8 +981,8 @@ class EvalCallback(BaseCallback):
                     variable = 'prob_' + variable
                     variables += [variable]
 
-            keys_figure = [(a, b) for a in self.test_years for b in self.test_locations]
-            results_figure = {filter_key: result_model[filter_key] for filter_key in keys_figure}
+            results_figure = evaluated_results_for_figures(result_model, eval_years, eval_locations)
+            self.logger.record(f'eval/figure-year-location-count', len(results_figure))
 
             # pickle info for creating figures
             dir_log = self.logger.get_dir()
@@ -991,6 +1010,10 @@ class EvalCallback(BaseCallback):
                                                 file_name=f'model-{latest_model_step}')
 
             # create variable plot
+            if not results_figure:
+                self.logger.dump(step=self.num_timesteps)
+                return True
+
             for i, variable in enumerate(variables):
                 if variable not in results_figure[list(results_figure.keys())[0]][0].keys():
                     continue

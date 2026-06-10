@@ -52,14 +52,16 @@ constraints:
     action_limit: 0
     n_budget: 0
     temporal: false
+    fertilize_until_dvs: 1.0
   soft:
-    enabled_for_agents: [LagPPO, RecurrentLagPPO]
+    enabled_for_agents: [LagPPO, RecurrentLagPPO, RecurrentCUP, RecurrentFOCOPS]
     cost_key: cost
     components_key: cost_components
     max_non_zero_actions: 4
+    fertilize_until_dvs: 1.0
     nue_threshold: [0.5, 0.9]
     n_surplus_threshold: [0.0, 40.0]
-    weights: {n: 5.0, nue: 1.0, n_surplus: 1.0}
+    weights: {n: 5.0, dvs: 1.0, nue: 1.0, n_surplus: 1.0}
 
 crop_model:
   pcse_model: wofost_snomin

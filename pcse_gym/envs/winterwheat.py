@@ -138,6 +138,14 @@ class WinterWheat(gym.Env):
 
         super().reset(seed=seed)
 
+    def get_wrapper_attr(self, name):
+        """Compatibility hook for SB3 VecEnv attribute lookup on Gymnasium envs."""
+        if hasattr(self, name):
+            return getattr(self, name)
+        if hasattr(self, "sb3_env") and hasattr(self.sb3_env, name):
+            return getattr(self.sb3_env, name)
+        raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
+
     def _init_reward_function(self, costs_nitrogen, kwargs):
 
         self.rewards_obj = Rewards(kwargs.get('reward_var'), self.timestep, costs_nitrogen)

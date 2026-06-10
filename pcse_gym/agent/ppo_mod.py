@@ -93,6 +93,20 @@ class Lagrange:
         self.last_lambda_loss = float(lambda_loss.detach().cpu().item())
 
 
+def _sb3_distribution_kl(current: Any, old: Any) -> th.Tensor:
+    """Compute per-sample KL for SB3 distribution wrappers."""
+    current_dist = getattr(current, "distribution", None)
+    old_dist = getattr(old, "distribution", None)
+    if isinstance(current_dist, list) and isinstance(old_dist, list):
+        return sum(th.distributions.kl_divergence(curr, prev) for curr, prev in zip(current_dist, old_dist))
+    if current_dist is None or old_dist is None:
+        raise TypeError(f"Unsupported distribution pair: {type(current).__name__}, {type(old).__name__}")
+    kl = th.distributions.kl_divergence(current_dist, old_dist)
+    if kl.ndim > 1:
+        kl = kl.sum(dim=-1)
+    return kl
+
+
 class CostRolloutBuffer(RolloutBuffer):
     costs: np.ndarray
     cost_values: np.ndarray
@@ -1121,8 +1135,421 @@ if RecurrentPPO is not None:
         ) -> SelfRecurrentLagrangianPPO:
             return super().learn(total_timesteps, callback, log_interval, tb_log_name, reset_num_timesteps, progress_bar)
 
+    SelfRecurrentFOCOPS = TypeVar("SelfRecurrentFOCOPS", bound="RecurrentFOCOPS")
+
+    class RecurrentFOCOPS(RecurrentLagrangianPPO):
+        def __init__(
+            self,
+            policy: str | type[RecurrentActorCriticPolicy],
+            env: GymEnv | str,
+            *args: Any,
+            focops_eta: float = 0.02,
+            focops_lam: float = 1.5,
+            **kwargs: Any,
+        ) -> None:
+            self.focops_eta = float(focops_eta)
+            self.focops_lam = float(focops_lam)
+            kwargs["lagrangian_update_frequency"] = "train"
+            super().__init__(policy, env, *args, **kwargs)
+
+        def _update_lagrange_from_rollout(self) -> None:
+            self._last_mean_ep_cost = self.rollout_buffer.mean_episode_cost()
+            self._last_cost_components = self.rollout_buffer.mean_cost_components()
+
+        def train(self) -> None:
+            self.policy.set_training_mode(True)
+            self._update_learning_rate(self.policy.optimizer)
+            clip_range = self.clip_range(self._current_progress_remaining)
+            if self.clip_range_vf is not None:
+                clip_range_vf = self.clip_range_vf(self._current_progress_remaining)
+
+            self.lagrange.update_lagrange_multiplier(self._last_mean_ep_cost)
+
+            focops_batches = []
+            for rollout_data in self.rollout_buffer.get(self.batch_size):
+                actions = rollout_data.actions
+                if isinstance(self.action_space, spaces.Discrete):
+                    actions = rollout_data.actions.long().flatten()
+                with th.no_grad():
+                    old_distribution, _ = self.policy.get_distribution(
+                        rollout_data.observations,
+                        rollout_data.lstm_states.pi,
+                        rollout_data.episode_starts,
+                    )
+                    old_distribution = deepcopy(old_distribution)
+                focops_batches.append((rollout_data, actions, old_distribution))
+
+            entropy_losses = []
+            pg_losses, value_losses, cost_value_losses = [], [], []
+            focops_kls = []
+            focops_ratios = []
+            focops_gate_fractions = []
+            continue_training = True
+            focops_stop_iter = self.n_epochs
+
+            for epoch in range(self.n_epochs):
+                epoch_kls = []
+                for rollout_data, actions, old_distribution in focops_batches:
+                    mask = rollout_data.mask > 1e-8
+                    values, cost_values, log_prob, entropy = self.policy.evaluate_actions(
+                        rollout_data.observations,
+                        actions,
+                        rollout_data.lstm_states,
+                        rollout_data.episode_starts,
+                    )
+                    distribution, _ = self.policy.get_distribution(
+                        rollout_data.observations,
+                        rollout_data.lstm_states.pi,
+                        rollout_data.episode_starts,
+                    )
+                    values = values.flatten()
+                    cost_values = cost_values.flatten()
+                    advantages = rollout_data.advantages
+                    cost_advantages = rollout_data.cost_advantages
+                    if self.normalize_advantage:
+                        advantages = (advantages - advantages[mask].mean()) / (advantages[mask].std() + 1e-8)
+                        cost_advantages = (cost_advantages - cost_advantages[mask].mean()) / (cost_advantages[mask].std() + 1e-8)
+
+                    lagrangian_multiplier = self.lagrange.lagrangian_multiplier
+                    combined_advantages = (advantages - lagrangian_multiplier * cost_advantages) / (1.0 + lagrangian_multiplier)
+                    ratio = th.exp(log_prob - rollout_data.old_log_prob)
+                    kl = _sb3_distribution_kl(distribution, old_distribution)
+                    gate = kl.detach() <= self.focops_eta
+                    effective_mask = mask & gate
+                    if th.any(effective_mask):
+                        policy_loss = th.mean(
+                            (
+                                kl
+                                - (1.0 / self.focops_lam) * ratio * combined_advantages
+                            )[effective_mask]
+                        )
+                    else:
+                        policy_loss = th.zeros((), device=self.device)
+                    pg_losses.append(float(policy_loss.detach().cpu().item()))
+                    focops_ratios.append(float(th.mean(ratio[mask]).detach().cpu().item()))
+                    focops_gate_fractions.append(float(th.mean(gate[mask].float()).detach().cpu().item()))
+
+                    if self.clip_range_vf is None:
+                        values_pred = values
+                    else:
+                        values_pred = rollout_data.old_values + th.clamp(
+                            values - rollout_data.old_values, -clip_range_vf, clip_range_vf
+                        )
+                    value_loss = th.mean(((rollout_data.returns - values_pred) ** 2)[mask])
+                    value_losses.append(value_loss.item())
+
+                    if self.use_cost_value_function:
+                        cost_value_loss = th.mean(((rollout_data.cost_returns - cost_values) ** 2)[mask])
+                    else:
+                        cost_value_loss = th.zeros((), device=self.device)
+                    cost_value_losses.append(float(cost_value_loss.detach().cpu().item()))
+
+                    if entropy is None:
+                        entropy_loss = -th.mean(-log_prob[mask])
+                    else:
+                        entropy_loss = -th.mean(entropy[mask])
+                    entropy_losses.append(entropy_loss.item())
+
+                    loss = (
+                        policy_loss
+                        + self.ent_coef * entropy_loss
+                        + self.vf_coef * value_loss
+                        + self.cost_vf_coef * cost_value_loss
+                    )
+                    mean_kl = float(th.mean(kl[mask]).detach().cpu().item())
+                    epoch_kls.append(mean_kl)
+                    self.policy.optimizer.zero_grad()
+                    loss.backward()
+                    th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                    self.policy.optimizer.step()
+
+                mean_epoch_kl = float(np.mean(epoch_kls)) if epoch_kls else 0.0
+                focops_kls.append(mean_epoch_kl)
+                self._n_updates += 1
+                if self.target_kl is not None and mean_epoch_kl > self.target_kl:
+                    continue_training = False
+                    focops_stop_iter = epoch + 1
+                    if self.verbose >= 1:
+                        print(f"Early stopping FOCOPS at step {epoch + 1} due to reaching max kl: {mean_epoch_kl:.2f}")
+                    break
+                if not continue_training:
+                    break
+
+            explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
+            cost_explained_var = explained_variance(
+                self.rollout_buffer.cost_values.flatten(),
+                self.rollout_buffer.cost_returns.flatten(),
+            )
+            self._last_focops_metrics = {
+                "train/focops_policy_loss": float(np.mean(pg_losses)) if pg_losses else 0.0,
+                "train/focops_kl": float(np.mean(focops_kls)) if focops_kls else 0.0,
+                "train/focops_stop_iter": focops_stop_iter,
+                "train/focops_policy_ratio": float(np.mean(focops_ratios)) if focops_ratios else 0.0,
+            }
+
+            self.logger.record("train/entropy_loss", np.mean(entropy_losses))
+            self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
+            self.logger.record("train/value_loss", np.mean(value_losses))
+            self.logger.record("train/cost_value_loss", np.mean(cost_value_losses))
+            self.logger.record("train/focops_policy_loss", self._last_focops_metrics["train/focops_policy_loss"])
+            self.logger.record("train/focops_kl", self._last_focops_metrics["train/focops_kl"])
+            self.logger.record("train/focops_stop_iter", focops_stop_iter)
+            self.logger.record("train/focops_policy_ratio", self._last_focops_metrics["train/focops_policy_ratio"])
+            if focops_gate_fractions:
+                self.logger.record("train/focops_gate_fraction", np.mean(focops_gate_fractions))
+            self.logger.record("train/loss", loss.item())
+            self.logger.record("train/explained_variance", explained_var)
+            self.logger.record("train/cost_explained_variance", cost_explained_var)
+            self.logger.record("train/lagrangian_multiplier", self.lagrange.lagrangian_multiplier)
+            self.logger.record("train/cost_limit", self.lagrange.cost_limit)
+            self.logger.record("train/mean_ep_cost", self._last_mean_ep_cost)
+            self.logger.record("train/cost_violation", self.lagrange.last_cost_violation)
+            self.logger.record("train/lambda_loss", self.lagrange.last_lambda_loss)
+            for key, value in self._last_cost_components.items():
+                self.logger.record(f"train/cost_component/{key}", value)
+            if hasattr(self.policy, "log_std"):
+                self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
+            self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+            self.logger.record("train/clip_range", clip_range)
+            if self.clip_range_vf is not None:
+                self.logger.record("train/clip_range_vf", clip_range_vf)
+
+        def learn(
+            self: SelfRecurrentFOCOPS,
+            total_timesteps: int,
+            callback: MaybeCallback = None,
+            log_interval: int = 1,
+            tb_log_name: str = "RecurrentFOCOPS",
+            reset_num_timesteps: bool = True,
+            progress_bar: bool = False,
+        ) -> SelfRecurrentFOCOPS:
+            return super().learn(total_timesteps, callback, log_interval, tb_log_name, reset_num_timesteps, progress_bar)
+
+    SelfRecurrentCUP = TypeVar("SelfRecurrentCUP", bound="RecurrentCUP")
+
+    class RecurrentCUP(RecurrentLagrangianPPO):
+        def __init__(
+            self,
+            policy: str | type[RecurrentActorCriticPolicy],
+            env: GymEnv | str,
+            *args: Any,
+            **kwargs: Any,
+        ) -> None:
+            gamma = kwargs.get("gamma", args[4] if len(args) >= 5 else 0.99)
+            if float(gamma) >= 1.0:
+                raise ValueError("RecurrentCUP requires agent.gamma < 1.0 because CUP divides by 1 - gamma.")
+            kwargs["lagrangian_update_frequency"] = "train"
+            super().__init__(policy, env, *args, **kwargs)
+
+        def _update_lagrange_from_rollout(self) -> None:
+            self._last_mean_ep_cost = self.rollout_buffer.mean_episode_cost()
+            self._last_cost_components = self.rollout_buffer.mean_cost_components()
+
+        def train(self) -> None:
+            self.policy.set_training_mode(True)
+            self._update_learning_rate(self.policy.optimizer)
+            clip_range = self.clip_range(self._current_progress_remaining)
+            if self.clip_range_vf is not None:
+                clip_range_vf = self.clip_range_vf(self._current_progress_remaining)
+
+            self.lagrange.update_lagrange_multiplier(self._last_mean_ep_cost)
+
+            entropy_losses = []
+            pg_losses, value_losses, cost_value_losses = [], [], []
+            clip_fractions = []
+            continue_training = True
+
+            for epoch in range(self.n_epochs):
+                approx_kl_divs = []
+                for rollout_data in self.rollout_buffer.get(self.batch_size):
+                    actions = rollout_data.actions
+                    if isinstance(self.action_space, spaces.Discrete):
+                        actions = rollout_data.actions.long().flatten()
+                    mask = rollout_data.mask > 1e-8
+                    values, cost_values, log_prob, entropy = self.policy.evaluate_actions(
+                        rollout_data.observations,
+                        actions,
+                        rollout_data.lstm_states,
+                        rollout_data.episode_starts,
+                    )
+                    values = values.flatten()
+                    cost_values = cost_values.flatten()
+                    advantages = rollout_data.advantages
+                    if self.normalize_advantage:
+                        advantages = (advantages - advantages[mask].mean()) / (advantages[mask].std() + 1e-8)
+
+                    ratio = th.exp(log_prob - rollout_data.old_log_prob)
+                    policy_loss_1 = advantages * ratio
+                    policy_loss_2 = advantages * th.clamp(ratio, 1 - clip_range, 1 + clip_range)
+                    policy_loss = -th.mean(th.min(policy_loss_1, policy_loss_2)[mask])
+                    pg_losses.append(policy_loss.item())
+                    clip_fractions.append(th.mean((th.abs(ratio - 1) > clip_range).float()[mask]).item())
+
+                    if self.clip_range_vf is None:
+                        values_pred = values
+                    else:
+                        values_pred = rollout_data.old_values + th.clamp(
+                            values - rollout_data.old_values, -clip_range_vf, clip_range_vf
+                        )
+                    value_loss = th.mean(((rollout_data.returns - values_pred) ** 2)[mask])
+                    value_losses.append(value_loss.item())
+
+                    if self.use_cost_value_function:
+                        cost_value_loss = th.mean(((rollout_data.cost_returns - cost_values) ** 2)[mask])
+                    else:
+                        cost_value_loss = th.zeros((), device=self.device)
+                    cost_value_losses.append(float(cost_value_loss.detach().cpu().item()))
+
+                    if entropy is None:
+                        entropy_loss = -th.mean(-log_prob[mask])
+                    else:
+                        entropy_loss = -th.mean(entropy[mask])
+                    entropy_losses.append(entropy_loss.item())
+
+                    loss = (
+                        policy_loss
+                        + self.ent_coef * entropy_loss
+                        + self.vf_coef * value_loss
+                        + self.cost_vf_coef * cost_value_loss
+                    )
+                    with th.no_grad():
+                        log_ratio = log_prob - rollout_data.old_log_prob
+                        approx_kl_div = th.mean(((th.exp(log_ratio) - 1) - log_ratio)[mask]).cpu().numpy()
+                        approx_kl_divs.append(approx_kl_div)
+                    if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
+                        continue_training = False
+                        if self.verbose >= 1:
+                            print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
+                        break
+                    self.policy.optimizer.zero_grad()
+                    loss.backward()
+                    th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                    self.policy.optimizer.step()
+                self._n_updates += 1
+                if not continue_training:
+                    break
+
+            cup_batches = []
+            for rollout_data in self.rollout_buffer.get(self.batch_size):
+                actions = rollout_data.actions
+                if isinstance(self.action_space, spaces.Discrete):
+                    actions = rollout_data.actions.long().flatten()
+                with th.no_grad():
+                    old_distribution, _ = self.policy.get_distribution(
+                        rollout_data.observations,
+                        rollout_data.lstm_states.pi,
+                        rollout_data.episode_starts,
+                    )
+                    old_distribution = deepcopy(old_distribution)
+                cup_batches.append((rollout_data, actions, old_distribution))
+
+            cup_cost_losses = []
+            cup_kls = []
+            cup_entropies = []
+            cup_ratios = []
+            cup_stop_iter = self.n_epochs
+            cup_coef = (1.0 - self.gamma * self.gae_lambda) / (1.0 - self.gamma)
+            for epoch in range(self.n_epochs):
+                epoch_kls = []
+                for rollout_data, actions, old_distribution in cup_batches:
+                    mask = rollout_data.mask > 1e-8
+                    cost_advantages = rollout_data.cost_advantages
+                    if self.normalize_advantage:
+                        cost_advantages = (
+                            cost_advantages - cost_advantages[mask].mean()
+                        ) / (cost_advantages[mask].std() + 1e-8)
+
+                    distribution, _ = self.policy.get_distribution(
+                        rollout_data.observations,
+                        rollout_data.lstm_states.pi,
+                        rollout_data.episode_starts,
+                    )
+                    log_prob = distribution.log_prob(actions)
+                    ratio = th.exp(log_prob - rollout_data.old_log_prob)
+                    kl = _sb3_distribution_kl(distribution, old_distribution)
+                    loss_cost = th.mean(
+                        (
+                            self.lagrange.lagrangian_multiplier * cup_coef * ratio * cost_advantages
+                            + kl
+                        )[mask]
+                    )
+
+                    self.policy.optimizer.zero_grad()
+                    loss_cost.backward()
+                    th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                    self.policy.optimizer.step()
+
+                    cup_cost_losses.append(float(loss_cost.detach().cpu().item()))
+                    epoch_kls.append(float(th.mean(kl[mask]).detach().cpu().item()))
+                    entropy = distribution.entropy()
+                    if entropy is not None:
+                        cup_entropies.append(float(th.mean(entropy[mask]).detach().cpu().item()))
+                    cup_ratios.append(float(th.mean(ratio[mask]).detach().cpu().item()))
+
+                mean_epoch_kl = float(np.mean(epoch_kls)) if epoch_kls else 0.0
+                cup_kls.append(mean_epoch_kl)
+                if self.target_kl is not None and mean_epoch_kl > self.target_kl:
+                    cup_stop_iter = epoch + 1
+                    if self.verbose >= 1:
+                        print(f"Early stopping CUP second step at step {epoch + 1} due to reaching max kl: {mean_epoch_kl:.2f}")
+                    break
+
+            explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
+            cost_explained_var = explained_variance(
+                self.rollout_buffer.cost_values.flatten(),
+                self.rollout_buffer.cost_returns.flatten(),
+            )
+            self._last_cup_metrics = {
+                "train/cup_cost_loss": float(np.mean(cup_cost_losses)) if cup_cost_losses else 0.0,
+                "train/cup_second_step_kl": float(np.mean(cup_kls)) if cup_kls else 0.0,
+                "train/cup_second_step_stop_iter": cup_stop_iter,
+            }
+
+            self.logger.record("train/entropy_loss", np.mean(entropy_losses))
+            self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
+            self.logger.record("train/value_loss", np.mean(value_losses))
+            self.logger.record("train/cost_value_loss", np.mean(cost_value_losses))
+            self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
+            self.logger.record("train/clip_fraction", np.mean(clip_fractions))
+            self.logger.record("train/loss", loss.item())
+            self.logger.record("train/explained_variance", explained_var)
+            self.logger.record("train/cost_explained_variance", cost_explained_var)
+            self.logger.record("train/lagrangian_multiplier", self.lagrange.lagrangian_multiplier)
+            self.logger.record("train/cost_limit", self.lagrange.cost_limit)
+            self.logger.record("train/mean_ep_cost", self._last_mean_ep_cost)
+            self.logger.record("train/cost_violation", self.lagrange.last_cost_violation)
+            self.logger.record("train/lambda_loss", self.lagrange.last_lambda_loss)
+            self.logger.record("train/cup_cost_loss", self._last_cup_metrics["train/cup_cost_loss"])
+            self.logger.record("train/cup_second_step_kl", self._last_cup_metrics["train/cup_second_step_kl"])
+            self.logger.record("train/cup_second_step_stop_iter", cup_stop_iter)
+            if cup_entropies:
+                self.logger.record("train/cup_second_step_entropy", np.mean(cup_entropies))
+            if cup_ratios:
+                self.logger.record("train/cup_second_step_policy_ratio", np.mean(cup_ratios))
+            for key, value in self._last_cost_components.items():
+                self.logger.record(f"train/cost_component/{key}", value)
+            if hasattr(self.policy, "log_std"):
+                self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
+            self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+            self.logger.record("train/clip_range", clip_range)
+            if self.clip_range_vf is not None:
+                self.logger.record("train/clip_range_vf", clip_range_vf)
+
+        def learn(
+            self: SelfRecurrentCUP,
+            total_timesteps: int,
+            callback: MaybeCallback = None,
+            log_interval: int = 1,
+            tb_log_name: str = "RecurrentCUP",
+            reset_num_timesteps: bool = True,
+            progress_bar: bool = False,
+        ) -> SelfRecurrentCUP:
+            return super().learn(total_timesteps, callback, log_interval, tb_log_name, reset_num_timesteps, progress_bar)
+
 else:
     RecurrentLagrangianPPO = None
+    RecurrentFOCOPS = None
+    RecurrentCUP = None
 
 
 def fertilization_action_constraint(*args: Any, **kwargs: Any) -> tuple[float, float, float, float, float]:

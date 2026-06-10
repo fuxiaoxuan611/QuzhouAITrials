@@ -199,6 +199,17 @@ shared recurrent reward/cost critic feature path. Current limitations are that
 the algorithm consumes one aggregate scalar cost and the recurrent v1 shares
 critic features between reward and cost value heads.
 
+`RecurrentCUP` adds a recurrent, SB3-native implementation of CUP for the same
+cost interface. It first runs the recurrent reward PPO update, then applies a
+second actor-only cost projection step using the stored recurrent cost
+advantages. CUP requires `agent.gamma < 1.0`; configs using `gamma: 1.0` must
+override it, for example `--override agent.gamma=0.99`.
+
+`RecurrentFOCOPS` adds a recurrent, SB3-native FOCOPS policy update for the same
+cost interface. It uses the Lagrangian-combined reward/cost advantage with a
+KL-gated actor loss controlled by `focops_eta` and `focops_lam`. Unlike CUP,
+FOCOPS does not require overriding configs that use `agent.gamma: 1.0`.
+
 ## Quzhou Maize Calibration
 
 The winter-wheat RL training path is kept as the current working baseline in `train_winterwheat.py`, because the wheat trials still need that line of work. For the China maize field-trial work, the calibrated Quzhou crop parameter file is included at:

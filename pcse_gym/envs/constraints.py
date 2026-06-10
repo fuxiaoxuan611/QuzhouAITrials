@@ -20,6 +20,7 @@ class ConstraintCostWrapper(Wrapper):
         self.cost_key = config.get("cost_key", "cost")
         self.components_key = config.get("components_key", "cost_components")
         self.max_non_zero_actions = config.get("max_non_zero_actions", 4)
+        self.fertilize_until_dvs = config.get("fertilize_until_dvs")
         self.nue_threshold = config.get("nue_threshold", (0.5, 0.9))
         self.n_surplus_threshold = config.get("n_surplus_threshold", (0.0, 40.0))
         self.weights = {
@@ -27,6 +28,9 @@ class ConstraintCostWrapper(Wrapper):
             "nue_violation": config.get("nue_weight", 1.0),
             "n_surplus_violation": config.get("n_surplus_weight", 1.0),
         }
+        if self.fertilize_until_dvs is not None:
+            self.fertilize_until_dvs = float(self.fertilize_until_dvs)
+            self.weights["fertilize_after_dvs"] = config.get("dvs_weight", 1.0)
         self.reset_constraint_state()
 
     def reset_constraint_state(self):
@@ -56,6 +60,14 @@ class ConstraintCostWrapper(Wrapper):
         lower, upper = threshold
         return float(value < lower or value > upper)
 
+    def _dvs_timing_component(self, fertilizer_action, info):
+        if self.fertilize_until_dvs is None or fertilizer_action <= 0:
+            return 0.0
+        dvs = self._latest_info_value(info, "DVS", None)
+        if dvs is None:
+            return 0.0
+        return float(float(dvs) > self.fertilize_until_dvs) * self.weights["fertilize_after_dvs"]
+
     def _cost_components(self, action, info, terminated, truncated):
         fertilizer_action = self._fertilizer_action(action)
         has_non_zero_action = fertilizer_action > 0
@@ -71,6 +83,8 @@ class ConstraintCostWrapper(Wrapper):
             )
             * self.weights["n_surplus_violation"],
         }
+        if self.fertilize_until_dvs is not None:
+            components["fertilize_after_dvs"] = self._dvs_timing_component(fertilizer_action, info)
         return components
 
     def step(self, action):
@@ -92,13 +106,14 @@ class ActionConstrainer(ActionWrapper):
     """
     Action Wrapper to limit fertilization actions
     """
-    def __init__(self, env, action_limit=0, n_budget=0, temporal=False):
+    def __init__(self, env, action_limit=0, n_budget=0, temporal=False, fertilize_until_dvs=1.0):
         super(ActionConstrainer, self).__init__(env)
         self.counter = 0
         self.action_limit = action_limit
         self.n_counter = 0
         self.temporal = temporal
         self.n_budget = n_budget
+        self.fertilize_until_dvs = float(fertilize_until_dvs)
 
     def action(self, action):
         if self.action_limit > 0:
@@ -119,22 +134,24 @@ class ActionConstrainer(ActionWrapper):
         return action
 
     def discrete_temporal_constraint(self, action):
-        if self.sb3_env.dvs < 0.01:
-            action = 0
-            return action
-        if self.sb3_env.dvs > 1:
+        if self._current_dvs() > self.fertilize_until_dvs:
             action = 0
             return action
         return action
 
     def multi_discrete_temporal_constraint(self, action):
-        if self.sb3_env.dvs < 0.01:
-            action[0] = 0
-            return action
-        if self.sb3_env.dvs > 1:
+        if self._current_dvs() > self.fertilize_until_dvs:
             action[0] = 0
             return action
         return action
+
+    def _current_dvs(self):
+        env = self.env
+        while env is not None:
+            if hasattr(env, "dvs"):
+                return float(env.dvs)
+            env = getattr(env, "env", None)
+        return 0.0
 
     def discrete_n_budget(self, action):
         if self.n_counter == self.n_budget:
