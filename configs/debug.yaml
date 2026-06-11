@@ -150,6 +150,16 @@ training:
     enabled: false
     name: null
     latent_dim: null
+    beta: 1.0
+    kappa: 0.0
+    gamma: null
+    ridge: 0.1
+    lr: 0.001
+    batch_size: 256
+    update_proportion: 1.0
+    obs_norm_type: none
+    rwd_norm_type: rms
+    hidden_dim: 256
 
 logging:
   comet:

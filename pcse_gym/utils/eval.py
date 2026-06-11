@@ -1037,30 +1037,46 @@ class EvalCallback(BaseCallback):
 
         return True
 
+    def _intrinsic_reward_samples(self):
+        rollout_buffer = self.model.rollout_buffer
+        observations = torch.as_tensor(rollout_buffer.observations)
+        next_observations = observations.clone()
+        next_observations[:-1] = observations[1:]
+        next_observations[-1] = torch.as_tensor(self.locals["new_obs"])
+        dones = self._transition_dones(rollout_buffer)
+        return {
+            "observations": observations,
+            "actions": torch.as_tensor(rollout_buffer.actions),
+            "rewards": torch.as_tensor(rollout_buffer.rewards),
+            "terminateds": dones,
+            "truncateds": dones,
+            "next_observations": next_observations,
+        }
+
+    def _transition_dones(self, rollout_buffer):
+        episode_starts = torch.as_tensor(rollout_buffer.episode_starts, dtype=torch.bool)
+        dones = torch.zeros_like(episode_starts, dtype=torch.bool)
+        if len(dones) > 1:
+            dones[:-1] = episode_starts[1:]
+        dones[-1] = torch.as_tensor(self.locals["dones"], dtype=torch.bool)
+        return dones
+
+    def _apply_intrinsic_rewards(self, intrinsic_rewards):
+        intrinsic_np = intrinsic_rewards.detach().cpu().numpy()
+        rollout_buffer = self.model.rollout_buffer
+        rollout_buffer.rewards += intrinsic_np
+        rollout_buffer.advantages += intrinsic_np
+        rollout_buffer.returns += intrinsic_np
+        self.logger.record("train/intrinsic_reward_mean", float(np.mean(intrinsic_np)))
+        self.logger.record("train/intrinsic_reward_max", float(np.max(intrinsic_np)))
+        self.logger.record("train/e3b_inverse_loss", float(getattr(self.irs, "last_inverse_loss", 0.0)))
+        self.logger.record("train/e3b_weight", float(getattr(self.irs, "weight", 0.0)))
+
     def _on_rollout_end(self) -> None:
-        # ===================== compute the intrinsic rewards ===================== #
-        # prepare the data samples
-        if self.irs is not None:
-            obs = torch.as_tensor(self.model.rollout_buffer.observations)
-            # get the new observations
-            new_obs = obs.clone()
-            new_obs[:-1] = obs[1:]
-            new_obs[-1] = torch.as_tensor(self.locals["new_obs"])
-            actions = torch.as_tensor(self.model.rollout_buffer.actions)
-            rewards = torch.as_tensor(self.model.rollout_buffer.rewards)
-            dones = torch.as_tensor(self.model.rollout_buffer.episode_starts)
-            # print(obs.shape, actions.shape, rewards.shape, dones.shape, obs.shape)
-            # compute the intrinsic rewards
-            intrinsic_rewards = self.irs.compute(
-                samples=dict(observations=obs, actions=actions,
-                             rewards=rewards, terminateds=dones,
-                             truncateds=dones, next_observations=new_obs),
-                sync=True)
-            # add the intrinsic rewards to the buffer
-            self.model.rollout_buffer.advantages += intrinsic_rewards.cpu().numpy()
-            self.model.rollout_buffer.returns += intrinsic_rewards.cpu().numpy()
-            # print(f'Intrinsic reward in step {self.num_timesteps} is {intrinsic_rewards.cpu().numpy()}')
-            # ===================== compute the intrinsic rewards ===================== #
+        if self.irs is None:
+            return
+        intrinsic_rewards = self.irs.compute(samples=self._intrinsic_reward_samples(), sync=True)
+        self._apply_intrinsic_rewards(intrinsic_rewards)
 
     def _on_training_end(self) -> None:
         if self.kl_target is not None:

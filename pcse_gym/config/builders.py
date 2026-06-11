@@ -340,15 +340,34 @@ def build_intrinsic_reward_from_config(config, env):
     irs = config.get("training", {}).get("intrinsic_reward", {})
     if not irs.get("enabled", False):
         return None
-    from rllte.xplore.reward import E3B, ICM, RIDE
 
     name = irs.get("name")
     device = config["agent"].get("device", "cpu")
     if name == "E3B":
-        return E3B(envs=env, device=device, latent_dim=irs.get("latent_dim", 128))
+        from pcse_gym.intrinsic import E3BIntrinsicReward
+
+        return E3BIntrinsicReward(
+            envs=env,
+            device=device,
+            latent_dim=irs.get("latent_dim") or 128,
+            beta=irs.get("beta", 1.0),
+            kappa=irs.get("kappa", 0.0),
+            gamma=irs.get("gamma"),
+            ridge=irs.get("ridge", 0.1),
+            lr=irs.get("lr", 0.001),
+            batch_size=irs.get("batch_size", 256),
+            update_proportion=irs.get("update_proportion", 1.0),
+            obs_norm_type=irs.get("obs_norm_type", "none"),
+            rwd_norm_type=irs.get("rwd_norm_type", "rms"),
+            hidden_dim=irs.get("hidden_dim", 256),
+        )
     if name == "ICM":
+        from rllte.xplore.reward import ICM
+
         return ICM(envs=env, device=device, latent_dim=irs.get("latent_dim", 256))
     if name == "RIDE":
+        from rllte.xplore.reward import RIDE
+
         return RIDE(envs=env, device=device)
     raise ValueError(f"Unsupported intrinsic reward: {name}")
 
