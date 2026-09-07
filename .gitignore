@@ -27,3 +27,9 @@ dependencies/pcse/
 *.egg-info/
 build/
 dist/
+
+# Local author/reference packages
+reference/author_package/
+
+# Local RL experiment outputs and checkpoints
+tensorboard_logs/
