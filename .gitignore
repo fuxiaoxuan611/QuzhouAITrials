@@ -1,0 +1,29 @@
+# Python virtual environment
+.venv/
+
+# IDE
+.idea/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local runtime
+runtime/
+tmp/
+
+# Third-party PCSE local checkout
+dependencies/pcse/
+
+# Logs
+*.log
+
+# Secrets / local environment
+.env
+.env.*
+
+# Packaging
+*.egg-info/
+build/
+dist/
