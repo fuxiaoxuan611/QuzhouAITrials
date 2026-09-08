@@ -1,5 +1,6 @@
 """Reusable inference components for QuzhouAITrials."""
 
+from .decision_engine import DecisionEngine, DecisionEngineError, DecisionSlot
 from .rl_inference import (
     RLInferenceEngine,
     action_index_to_n_rate,
@@ -35,8 +36,11 @@ __all__ = [
     "SCHEMA_VERSION",
     "Crop",
     "CropObservation",
+    "DecisionEngine",
+    "DecisionEngineError",
     "DecisionContext",
     "DecisionRequest",
+    "DecisionSlot",
     "FertilizationEvent",
     "IrrigationEvent",
     "Location",

@@ -176,13 +176,16 @@ class WOFOSTRealtimeEngine:
             result.append(action_index)
         return result
 
-    def _reset(self) -> None:
-        self.env.reset(seed=self.seed)
+    def _reset(self) -> Any:
+        observation = self.env.reset(seed=self.seed)
+        if isinstance(observation, tuple):
+            observation = observation[0]
         if self.env.date != self.crop_start_date:
             raise WOFOSTRealtimeError(
                 "RESET_DATE_MISMATCH: "
                 f"environment={self.env.date}, crop_start={self.crop_start_date}"
             )
+        return observation
 
     def _current_state(self) -> dict[str, Any]:
         output = self.env.model.get_output()
@@ -196,6 +199,45 @@ class WOFOSTRealtimeEngine:
             _validate_finite(latest[field], field)
             state[field] = _json_safe(latest[field])
         return state
+
+    @property
+    def observation_feature_names(self) -> list[str]:
+        """Return the feature order used by the current SB3 observation code."""
+
+        sb3_env = self.env.sb3_env
+        names = list(sb3_env.crop_features) + list(sb3_env.action_features)
+        if not sb3_env.no_weather:
+            if self.timestep_days == 7:
+                names.extend(sb3_env.weather_features)
+            else:
+                for day_index in range(self.timestep_days):
+                    names.extend(
+                        f"{feature}[day_{day_index}]"
+                        for feature in sb3_env.weather_features
+                    )
+        if sb3_env.mask_binary:
+            names.extend(sb3_env.po_features)
+        return names
+
+    def _format_training_observation(self, observation: Any) -> dict[str, Any]:
+        """Validate an observation returned by the real training wrapper."""
+
+        sb3_env = self.env.sb3_env
+        vector = np.asarray(observation)
+        expected_shape = tuple(sb3_env.observation_space.shape)
+        if vector.shape != expected_shape:
+            raise StateValidationError(
+                "OBSERVATION_SHAPE_MISMATCH: got "
+                f"{vector.shape}, expected {expected_shape}"
+            )
+        _validate_finite(vector, "raw_observation")
+        return {
+            "raw_observation": _json_safe(vector),
+            "raw_observation_shape": list(vector.shape),
+            "raw_observation_dtype": str(vector.dtype),
+            "observation_feature_names": self.observation_feature_names,
+            "observation_space_dtype": str(sb3_env.observation_space.dtype),
+        }
 
     def reconstruct(
         self,
@@ -240,12 +282,12 @@ class WOFOSTRealtimeEngine:
                 f"expected={required_steps}, received={len(actions)}"
             )
 
-        self._reset()
+        last_observation = self._reset()
         steps_executed = 0
         terminated = False
         truncated = False
         for action_index in actions:
-            _, _, terminated, truncated, _ = self.env.step(action_index)
+            last_observation, _, terminated, truncated, _ = self.env.step(action_index)
             steps_executed += 1
             if self.env.date > requested:
                 raise WOFOSTRealtimeError(
@@ -282,6 +324,22 @@ class WOFOSTRealtimeEngine:
             )
 
         terminated = bool(getattr(self.env.model, "terminated", terminated))
+        if residual_days == 0:
+            # This is the exact flat vector returned by StableBaselinesWrapper
+            # at reset/step.  Reusing the returned vector also preserves the
+            # wrapper's counter timing for ``week`` and ``Naction``.
+            training_observation = self._format_training_observation(last_observation)
+        else:
+            # A residual date is a valid WOFOST state but not a policy
+            # observation boundary.  Do not label a newly assembled vector as
+            # an exact training observation for that date.
+            training_observation = {
+                "raw_observation": None,
+                "raw_observation_shape": None,
+                "raw_observation_dtype": None,
+                "observation_feature_names": self.observation_feature_names,
+                "observation_space_dtype": str(self.env.sb3_env.observation_space.dtype),
+            }
         return {
             "requested_query_date": requested.isoformat(),
             "simulation_date": simulation_date.isoformat(),
@@ -295,6 +353,7 @@ class WOFOSTRealtimeEngine:
             "truncated": bool(truncated),
             "action_history": actions,
             "crop_state": self._current_state(),
+            **training_observation,
         }
 
     def close(self) -> None:

@@ -212,6 +212,36 @@ class RLInferenceEngine:
         if not np.isfinite(observation).all():
             raise InferenceCompatibilityError("Observation contains NaN or Inf")
 
+    def normalize_raw_observation(self, raw_observation: Any) -> np.ndarray:
+        """Normalize one raw training observation with restored VecNormalize state.
+
+        ``raw_observation`` must already represent the current environment
+        state.  This method never resets or steps the environment; it only
+        applies the loaded observation statistics before policy inference.
+        The returned array is batched in the same shape used by SB3.
+        """
+
+        raw = np.asarray(raw_observation)
+        single_shape = tuple(self.env.observation_space.shape)
+        batched_shape = (self.env.num_envs,) + single_shape
+        if raw.shape == single_shape:
+            raw = raw.reshape(batched_shape)
+        elif raw.shape != batched_shape:
+            raise InferenceCompatibilityError(
+                f"Raw observation shape mismatch: got {raw.shape}, "
+                f"expected {single_shape} or {batched_shape}"
+            )
+        if not np.issubdtype(raw.dtype, np.number):
+            raise InferenceCompatibilityError(
+                f"Raw observation dtype is not numeric: {raw.dtype}"
+            )
+        if not np.isfinite(raw).all():
+            raise InferenceCompatibilityError("Raw observation contains NaN or Inf")
+
+        normalized = np.asarray(self.env.normalize_obs(raw))
+        self._validate_observation(normalized)
+        return normalized
+
     def reset(self, seed: int | None = None) -> dict[str, Any]:
         """Reset the vectorized inference environment and return JSON-safe data."""
 
@@ -259,6 +289,44 @@ class RLInferenceEngine:
             "action_dtype": str(action_array.dtype),
             "n_rate_kg_ha": n_rate,
             "deterministic": bool(deterministic),
+        }
+
+    def predict_from_raw_observation(
+        self,
+        raw_observation: Any,
+        deterministic: bool = True,
+    ) -> dict[str, Any]:
+        """Normalize a realtime raw vector and run one policy prediction.
+
+        Unlike :meth:`predict`, this handoff does not use the inference
+        environment's own reset/step state.  It is therefore suitable for a
+        WOFOSTRealtimeEngine state reconstructed at a specific policy date.
+        """
+
+        normalized = self.normalize_raw_observation(raw_observation)
+        action, _state = self.model.predict(normalized, deterministic=deterministic)
+        action_array = np.asarray(action)
+        if action_array.size != 1:
+            raise InferenceCompatibilityError(
+                f"Expected one discrete action, got shape {action_array.shape}"
+            )
+        action_index = int(action_array.reshape(-1)[0])
+        if not self.env.action_space.contains(action_index):
+            raise InferenceCompatibilityError(
+                f"Predicted action {action_index} is outside {self.env.action_space}"
+            )
+        n_rate = action_index_to_n_rate(
+            action_index,
+            self.config["action_space"].get("multiplier", 1.0),
+        )
+        return {
+            "action_index": action_index,
+            "action_dtype": str(action_array.dtype),
+            "n_rate_kg_ha": n_rate,
+            "deterministic": bool(deterministic),
+            "normalized_observation": _json_safe(normalized),
+            "normalized_observation_shape": list(normalized.shape),
+            "normalized_observation_dtype": str(normalized.dtype),
         }
 
     def step(self, action_index: int) -> dict[str, Any]:
