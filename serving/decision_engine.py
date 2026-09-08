@@ -298,6 +298,11 @@ class DecisionEngine:
         self.realtime.close()
         self.rl.close()
 
+    def get_metadata(self) -> dict[str, Any]:
+        """Return internal model metadata for public sanitization by adapters."""
+
+        return self.rl.get_metadata()
+
     def __enter__(self) -> "DecisionEngine":
         return self
 

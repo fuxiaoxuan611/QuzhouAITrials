@@ -6,6 +6,7 @@ from .decision_contract import (
     DECISION_RESULT_TOP_LEVEL_KEYS,
     build_decision_result,
     json_safe,
+    sanitize_model_metadata,
     serialize_decision_error,
 )
 from .errors import (
@@ -109,6 +110,7 @@ __all__ = [
     "management_to_realtime_input",
     "normalize_decision_request",
     "json_safe",
+    "sanitize_model_metadata",
     "serialize_decision_error",
     "ModelSoilLayer",
     "SoilObservationAdapter",

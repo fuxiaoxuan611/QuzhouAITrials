@@ -104,6 +104,12 @@ def _metadata_without_paths(metadata: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def sanitize_model_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """Return metadata safe for public capabilities/result responses."""
+
+    return json_safe(_metadata_without_paths(metadata or {}))
+
+
 def build_decision_result(
     *,
     request_id: str | None,
@@ -141,7 +147,7 @@ def build_decision_result(
             "applied_to_wofost_state": False,
             "fusion_audit": {},
         },
-        "model_metadata": _metadata_without_paths(model_metadata or {}),
+        "model_metadata": sanitize_model_metadata(model_metadata),
         "warnings": list(warnings or []),
     }
     return json_safe(result)
@@ -152,5 +158,6 @@ __all__ = [
     "DECISION_RESULT_TOP_LEVEL_KEYS",
     "build_decision_result",
     "json_safe",
+    "sanitize_model_metadata",
     "serialize_decision_error",
 ]
