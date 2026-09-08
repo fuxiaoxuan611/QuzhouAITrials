@@ -90,12 +90,24 @@ class RLInferenceEngine:
         env_stats_path: str | Path,
         device: str = "auto",
         env_split: str = "test",
+        policy_validation_status: str = "unknown",
     ) -> None:
         self.config_path = _resolve_path(config_path)
         self.model_path = _resolve_path(model_path)
         self.env_stats_path = _resolve_path(env_stats_path)
         self.device = device
         self.env_split = env_split
+        allowed_validation_statuses = {
+            "unknown",
+            "engineering_only",
+            "agronomically_validated",
+        }
+        if policy_validation_status not in allowed_validation_statuses:
+            raise ValueError(
+                "policy_validation_status must be one of "
+                f"{sorted(allowed_validation_statuses)!r}"
+            )
+        self.policy_validation_status = policy_validation_status
         self._last_observation: np.ndarray | None = None
 
         for name, path in (
@@ -385,14 +397,24 @@ class RLInferenceEngine:
 
         return {
             "algorithm": "LagrangianPPO",
+            # These paths remain available to internal diagnostics and legacy
+            # tests. DecisionResult sanitizes all *_path keys at its public
+            # contract boundary.
             "config_path": str(self.config_path),
             "model_path": str(self.model_path),
             "env_stats_path": str(self.env_stats_path),
+            "config_identifier": self.config_path.name,
+            "model_identifier": self.model_path.name,
+            "env_stats_identifier": self.env_stats_path.name,
             "observation_dim": int(self.env.observation_space.shape[0]),
             "action_n": int(self.env.action_space.n),
             "timestep_days": int(self.config["environment"].get("timestep", 7)),
             "observation_dtype": str(self.env.observation_space.dtype),
             "device": str(self.model.device),
+            "validation_status": self.policy_validation_status,
+            "validated_for_agronomic_recommendation": (
+                self.policy_validation_status == "agronomically_validated"
+            ),
         }
 
     def close(self) -> None:

@@ -13,6 +13,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from .decision_contract import build_decision_result
+from .errors import DecisionEngineError, RequestValidationError
 from .management_history import management_to_realtime_input
 from .observation_fusion import ObservationFusionEngine, not_due_audit
 from .rl_inference import RLInferenceEngine
@@ -23,10 +25,6 @@ from .schemas import (
     normalize_decision_request,
 )
 from .wofost_realtime import WOFOSTRealtimeEngine
-
-
-class DecisionEngineError(ValueError):
-    """Raised when a canonical request cannot produce a safe decision result."""
 
 
 @dataclass(frozen=True)
@@ -53,6 +51,7 @@ class DecisionEngine:
         env_stats_path: str | Path,
         device: str = "auto",
         env_split: str = "test",
+        policy_validation_status: str = "unknown",
     ) -> None:
         self.realtime = WOFOSTRealtimeEngine(
             config_path=config_path,
@@ -66,6 +65,7 @@ class DecisionEngine:
                 env_stats_path=env_stats_path,
                 device=device,
                 env_split=env_split,
+                policy_validation_status=policy_validation_status,
             )
         except Exception:
             self.realtime.close()
@@ -153,13 +153,17 @@ class DecisionEngine:
                 if isinstance(request, dict)
                 else request
             )
-        except SchemaValidationError:
-            raise
+        except SchemaValidationError as exc:
+            raise RequestValidationError(str(exc), field="request") from exc
         if not isinstance(canonical, DecisionRequest):
-            raise TypeError("request must be a canonical DecisionRequest or mapping")
+            raise RequestValidationError(
+                "request must be a canonical DecisionRequest or mapping",
+                field="request",
+            )
         if canonical.schema_version != SCHEMA_VERSION:
-            raise SchemaValidationError(
-                f"schema_version: expected {SCHEMA_VERSION!r}, got {canonical.schema_version!r}"
+            raise RequestValidationError(
+                f"schema_version: expected {SCHEMA_VERSION!r}, got {canonical.schema_version!r}",
+                field="schema_version",
             )
 
         if canonical.crop.sowing_date != self.realtime.crop_start_date:
@@ -200,6 +204,8 @@ class DecisionEngine:
             observation_fusion = not_due_audit(canonical.observations is not None)
             if decision_due and not canonical.decision_context.allow_fertilization_decision:
                 observation_fusion["mode"] = "fertilization_decision_disabled"
+        if observation_fusion.get("date_mismatch"):
+            warnings.append("OBSERVATION_DATE_MISMATCH")
 
         recommendation = None
         constraint_violation = False
@@ -218,10 +224,21 @@ class DecisionEngine:
             )
             if constraint_violation:
                 warnings.append("max_single_n_rate_kg_ha_exceeded")
+            constraint_details = {}
+            if maximum is not None:
+                constraint_details = {
+                    "max_single_n_rate_kg_ha": float(maximum),
+                    "actual_n_rate_kg_ha": float(prediction["n_rate_kg_ha"]),
+                    "exceeded_by_kg_ha": max(
+                        0.0,
+                        float(prediction["n_rate_kg_ha"]) - float(maximum),
+                    ),
+                }
             recommendation = {
+                "decision_type": canonical.decision_context.decision_type,
                 **policy_action,
-                "policy_action": policy_action,
                 "constraint_violation": constraint_violation,
+                "constraint_details": constraint_details,
             }
 
         metadata = self.rl.get_metadata()
@@ -234,29 +251,21 @@ class DecisionEngine:
             }
         )
 
-        result = {
-            "schema_version": canonical.schema_version,
-            "status": "ok",
-            "decision_due": decision_due,
-            "state_date": reconstructed["simulation_date"],
-            "policy_observation_date": _iso(slot.observation_date) if slot else None,
-            "action_application_date": (
+        result = build_decision_result(
+            request_id=canonical.request.request_id,
+            decision_due=decision_due,
+            state_date=reconstructed["simulation_date"],
+            policy_observation_date=_iso(slot.observation_date) if slot else None,
+            action_application_date=(
                 _iso(slot.action_application_date) if slot else None
             ),
-            "next_action_application_date": (
-                _iso(slot.action_application_date)
-                if slot
-                else _iso(following.action_application_date) if following else None
-            ),
-            "previous_decision_date": _iso(previous.observation_date) if previous else None,
-            "next_decision_date": (
+            previous_decision_date=_iso(previous.observation_date) if previous else None,
+            next_decision_date=(
                 _iso(following.observation_date) if following else None
             ),
-            "recommendation": recommendation,
-            "constraint_violation": constraint_violation,
-            "model_state": reconstructed["crop_state"],
-            "current_state": reconstructed["crop_state"],
-            "management": {
+            recommendation=recommendation,
+            model_state=reconstructed["crop_state"],
+            management={
                 "action_history": realtime_input["action_history"],
                 "decision_dates": realtime_input["decision_dates"],
                 "completed_steps": realtime_input["completed_steps"],
@@ -265,18 +274,24 @@ class DecisionEngine:
                     "mapped_fertilization_events"
                 ],
             },
-            "observations": {
+            observations={
                 "received": canonical.observations is not None,
-                "applied_to_model": False,
                 "applied_to_policy": observation_fusion["applied_to_policy"],
                 "applied_to_wofost_state": observation_fusion[
                     "applied_to_wofost_state"
                 ],
+                "fusion_audit": observation_fusion,
+                # Compatibility alias for callers of the pre-contract result.
+                "applied_to_model": False,
             },
-            "observation_fusion": observation_fusion,
-            "model_metadata": metadata,
-            "warnings": warnings,
-        }
+            model_metadata=metadata,
+            warnings=warnings,
+        )
+        # Compatibility aliases are retained for the already-tested local
+        # pipeline; the keys above are the frozen v1 contract source of truth.
+        result["constraint_violation"] = constraint_violation
+        result["current_state"] = result["model_state"]
+        result["observation_fusion"] = result["observations"]["fusion_audit"]
         return result
 
     def close(self) -> None:
