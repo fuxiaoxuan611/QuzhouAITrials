@@ -32,6 +32,13 @@ from .schemas import (
     normalize_decision_request,
 )
 from .wofost_realtime import WOFOSTRealtimeEngine
+from .soil_observation import (
+    ModelSoilLayer,
+    SoilObservationAdapter,
+    SoilObservationError,
+    mg_n_kg_to_kg_ha,
+    volumetric_water_to_cm_water,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -63,4 +70,9 @@ __all__ = [
     "get_schema_capabilities",
     "management_to_realtime_input",
     "normalize_decision_request",
+    "ModelSoilLayer",
+    "SoilObservationAdapter",
+    "SoilObservationError",
+    "mg_n_kg_to_kg_ha",
+    "volumetric_water_to_cm_water",
 ]

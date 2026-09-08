@@ -63,6 +63,7 @@ irrigation remains defined by its agromanagement configuration.
     {
       "depth_top_cm": 0,
       "depth_bottom_cm": 20,
+      "bulk_density_g_cm3": 1.42,
       "soil_water": 7.4,
       "volumetric_water_content": 0.24,
       "no3_n_mg_kg": 45.8,
@@ -76,6 +77,11 @@ irrigation remains defined by its agromanagement configuration.
 }
 ```
 
+`bulk_density_g_cm3` is optional metadata for a measured soil interval. It is
+required when converting `no3_n_mg_kg` or `nh4_n_mg_kg` to the area-based units
+used by the current SNOMIN/SB3 features. It is validated as a finite positive
+value and does not change the schema version.
+
 Allowed `source` values are `field_measurement`, `sensor`, `laboratory`,
 `remote_sensing`, `user_reported`, `model_estimate`, and `unknown`.  Soil
 layers require increasing `depth_top_cm`/`depth_bottom_cm`; concentration,
@@ -86,6 +92,24 @@ implemented for a same-date crop LAI measurement: it replaces raw RL feature
 index 2 before VecNormalize and policy inference. This is a policy-observation
 override only; the WOFOST/PCSE state is never mutated. Older or future-dated
 observations are not silently applied.
+
+The current `observations.soil` array is preserved by the schema. The
+`serving.soil_observation.SoilObservationAdapter` maps its depth intervals to
+the authoritative CN-Maize model layers by geometric overlap. It does not
+modify PCSE/WOFOST state and it does not activate NO3, NH4, or WC in policy
+fusion. For nitrogen, the explicit conversion is:
+
+```text
+mg N/kg soil × bulk density (g/cm³) × overlap thickness (cm) × 0.1
+    = kg N/ha
+```
+
+For water, PCSE's `SM` is volumetric water fraction and `WC` is cm water per
+layer. The adapter therefore converts `volumetric_water_content × overlap
+thickness_cm` to cm water and takes the mean of the complete set of model
+layers, matching the current SB3 scalar WC extraction. The legacy
+`soil_water` field remains preserved but is not used because its semantics do
+not by themselves identify the PCSE `WC` quantity.
 
 The observation-fusion levels are deliberately separated:
 
@@ -119,7 +143,7 @@ boundary:
 | Fertilizer N-form metadata | `RESERVED` | Preserved but not used by the discrete RL action. |
 | `observations.crop.lai` | `ACTIVE_DECISION_OVERRIDE` | Same-date LAI replaces raw RL feature index 2 at a decision boundary; WOFOST state remains unchanged. |
 | Other crop observations | `RESERVED` | Preserved; no direct feature in the current 22-dimensional policy observation. |
-| Soil observations | `RESERVED` | Preserved; NO3/NH4/WC unit and layer conversions are not closed for override. |
+| Soil observations | `RESERVED` | Preserved; `SoilObservationAdapter` provides validated depth/unit conversion, but policy activation remains a separate step. |
 | Weather history/forecast | `RESERVED` | Preserved; no provider override. |
 | Decision context | `RESERVED` | Preserved request metadata. |
 | Custom irrigation history | `UNSUPPORTED` | Current irrigation is fixed by agromanagement. |

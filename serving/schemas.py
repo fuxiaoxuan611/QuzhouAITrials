@@ -438,6 +438,8 @@ class SoilLayerObservation:
     ec_ds_m: float | None = None
     ph: float | None = None
     soil_temperature_c: float | None = None
+    # Appended to preserve the positional order of the frozen v1 fields.
+    bulk_density_g_cm3: float | None = None
 
     @classmethod
     def from_mapping(cls, value: Any, index: int) -> "SoilLayerObservation":
@@ -446,7 +448,7 @@ class SoilLayerObservation:
         _reject_unknown(
             data,
             {
-                "depth_top_cm", "depth_bottom_cm", "soil_water",
+                "depth_top_cm", "depth_bottom_cm", "bulk_density_g_cm3", "soil_water",
                 "volumetric_water_content", "no3_n_mg_kg", "nh4_n_mg_kg",
                 "ec_ds_m", "ph", "soil_temperature_c",
             },
@@ -459,9 +461,13 @@ class SoilLayerObservation:
         ph = _optional_number(data, "ph", f"{field}.ph")
         if ph is not None and not 0 <= ph <= 14:
             raise SchemaValidationError(f"{field}.ph: must be in [0, 14]")
+        bulk_density = _optional_number(data, "bulk_density_g_cm3", f"{field}.bulk_density_g_cm3")
+        if bulk_density is not None and bulk_density <= 0:
+            raise SchemaValidationError(f"{field}.bulk_density_g_cm3: must be > 0")
         return cls(
             depth_top_cm=top,
             depth_bottom_cm=bottom,
+            bulk_density_g_cm3=bulk_density,
             soil_water=_optional_nonnegative(data, "soil_water", f"{field}.soil_water"),
             volumetric_water_content=_optional_nonnegative(
                 data, "volumetric_water_content", f"{field}.volumetric_water_content"
@@ -479,6 +485,7 @@ class SoilLayerObservation:
         return {
             "depth_top_cm": self.depth_top_cm,
             "depth_bottom_cm": self.depth_bottom_cm,
+            "bulk_density_g_cm3": self.bulk_density_g_cm3,
             "soil_water": self.soil_water,
             "volumetric_water_content": self.volumetric_water_content,
             "no3_n_mg_kg": self.no3_n_mg_kg,
