@@ -790,24 +790,24 @@ def get_schema_capabilities() -> dict[str, Any]:
                 "model_usage": "preserved; no direct feature in the current 22-dimensional policy observation",
             },
             "observations.soil": {
-                "status": "RESERVED",
-                "model_usage": "preserved; no Level 1 override until units and layer conversion are closed",
+                "status": "ACTIVE_DECISION_OVERRIDE",
+                "model_usage": "same-date complete soil profiles can override supported raw RL features; WOFOST state unchanged",
             },
             "observations.soil.no3_n_mg_kg": {
-                "status": "RESERVED",
-                "model_usage": "PCSE exposes layered kg N ha-1 amounts; canonical mg N kg-1 conversion is not active",
+                "status": "ACTIVE_DECISION_OVERRIDE",
+                "model_usage": "same-date complete 0-120 cm profile maps to raw RL feature index 4 in kg N/ha; model RHOD is an explicit fallback",
             },
             "observations.soil.nh4_n_mg_kg": {
-                "status": "RESERVED",
-                "model_usage": "PCSE exposes layered kg N ha-1 amounts; canonical mg N kg-1 conversion is not active",
+                "status": "ACTIVE_DECISION_OVERRIDE",
+                "model_usage": "same-date complete 0-120 cm profile maps to raw RL feature index 5 in kg N/ha; model RHOD is an explicit fallback",
             },
             "observations.soil.soil_water": {
                 "status": "RESERVED",
                 "model_usage": "canonical water semantics do not directly match the current scalar WC feature",
             },
             "observations.soil.volumetric_water_content": {
-                "status": "RESERVED",
-                "model_usage": "canonical volumetric content does not directly match the current scalar WC feature",
+                "status": "ACTIVE_DECISION_OVERRIDE",
+                "model_usage": "same-date complete 0-120 cm profile maps to raw RL feature index 6 as mean cm water across model layers",
             },
             "weather.openmeteo": {
                 "status": "ACTIVE",

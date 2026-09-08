@@ -9,16 +9,29 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import math
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
 
 from .schemas import ObservationSnapshot
+from .soil_observation import (
+    READY_FOR_DECISION_OVERRIDE,
+    SoilObservationAdapter,
+    SoilObservationError,
+)
 
 
 LAI_FEATURE_INDEX = 2
 LAI_FEATURE_NAME = "LAI"
 EXPECTED_RAW_OBSERVATION_DIMENSION = 22
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SOIL_CONFIG_PATH = PROJECT_ROOT / "pcse_gym" / "envs" / "configs" / "soil" / "quzhou_maize_4layer_whcns_2025.yaml"
+_SOIL_FEATURES = {
+    "no3_n_mg_kg": ("NO3", 4, "observations.soil[].no3_n_mg_kg"),
+    "nh4_n_mg_kg": ("NH4", 5, "observations.soil[].nh4_n_mg_kg"),
+    "volumetric_water_content": ("WC", 6, "observations.soil[].volumetric_water_content"),
+}
 
 _CROP_RESERVED_FIELDS = (
     ("spad", "NO_DIRECT_RL_FEATURE"),
@@ -29,12 +42,7 @@ _CROP_RESERVED_FIELDS = (
     ("leaf_n_concentration_g_kg", "NO_DIRECT_RL_FEATURE"),
     ("phenology_stage", "NO_DIRECT_RL_FEATURE"),
 )
-_SOIL_UNIT_RESERVED_FIELDS = {
-    "soil_water",
-    "volumetric_water_content",
-    "no3_n_mg_kg",
-    "nh4_n_mg_kg",
-}
+_SOIL_UNIT_RESERVED_FIELDS = {"soil_water"}
 _SOIL_RESERVED_FIELDS = (
     "ec_ds_m",
     "ph",
@@ -99,6 +107,11 @@ def _non_null_fields(observations: ObservationSnapshot) -> list[str]:
 class ObservationFusionEngine:
     """Apply only safe canonical fields to a decision-time raw observation."""
 
+    def __init__(self, soil_adapter: SoilObservationAdapter | None = None) -> None:
+        self.soil_adapter = soil_adapter or SoilObservationAdapter.from_soil_yaml(
+            SOIL_CONFIG_PATH
+        )
+
     def fuse(
         self,
         raw_observation: Any,
@@ -108,8 +121,8 @@ class ObservationFusionEngine:
         """Return a copied raw vector and a JSON-safe fusion audit.
 
         A canonical observation is eligible only when its observation date is
-        exactly the requested policy date. The first implementation has one
-        active mapping: ``observations.crop.lai`` to raw feature index 2.
+        exactly the requested policy date. Same-date LAI and complete soil
+        profiles have explicit decision-time mappings.
         """
 
         raw = np.asarray(raw_observation)
@@ -186,13 +199,76 @@ class ObservationFusionEngine:
                         }
                     )
 
+        if observations.soil:
+            try:
+                soil_result = self.soil_adapter.adapt(observations.soil)
+            except SoilObservationError as exc:
+                raise ObservationFusionError(str(exc)) from exc
+
+            audit["soil"] = soil_result["audit"]
+            for source_field, (feature_name, feature_index, canonical_field) in _SOIL_FEATURES.items():
+                if not any(
+                    getattr(layer, source_field) is not None
+                    for layer in observations.soil
+                ):
+                    continue
+                status = soil_result["feature_status"][feature_name]
+                derived_value = soil_result["rl_features"][feature_name]
+                feature_audit = soil_result["audit"]["feature_audit"][feature_name]
+                if status == READY_FOR_DECISION_OVERRIDE and derived_value is not None:
+                    model_value = float(corrected[feature_index])
+                    corrected[feature_index] = derived_value
+                    density_sources = sorted({
+                        item["bulk_density_source"]
+                        for item in feature_audit
+                        if item["bulk_density_source"] is not None
+                    })
+                    audit["applied"].append(
+                        {
+                            "canonical_field": canonical_field,
+                            "rl_feature": feature_name,
+                            "feature_index": feature_index,
+                            "model_value": model_value,
+                            "observed_derived_value": float(derived_value),
+                            "depth_coverage": feature_audit,
+                            "model_layers": [item["model_layer"] for item in feature_audit],
+                            "source_layers": sorted({
+                                layer_index
+                                for item in feature_audit
+                                for layer_index in item["source_layers"]
+                            }),
+                            "bulk_density_source": (
+                                density_sources[0]
+                                if len(density_sources) == 1
+                                else "mixed"
+                                if density_sources
+                                else None
+                            ),
+                            "derived_rl_value": float(derived_value),
+                        }
+                    )
+                else:
+                    reasons = soil_result["audit"]["feature_reasons"].get(
+                        feature_name, ["INSUFFICIENT_INPUT"]
+                    )
+                    audit["not_applied"].append(
+                        {
+                            "canonical_field": canonical_field,
+                            "rl_feature": feature_name,
+                            "feature_index": feature_index,
+                            "status": status,
+                            "reason": reasons[0],
+                            "depth_coverage": feature_audit,
+                        }
+                    )
+
         for index, layer in enumerate(observations.soil):
             for field in _SOIL_UNIT_RESERVED_FIELDS:
                 if getattr(layer, field) is not None:
                     audit["not_applied"].append(
                         {
                             "canonical_field": f"observations.soil[{index}].{field}",
-                            "reason": "RESERVED_UNIT_OR_LAYER_CONVERSION_UNCONFIRMED",
+                            "reason": "AMBIGUOUS_PCSE_WATER_SEMANTICS",
                         }
                     )
             for field in _SOIL_RESERVED_FIELDS:

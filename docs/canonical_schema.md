@@ -87,11 +87,12 @@ Allowed `source` values are `field_measurement`, `sensor`, `laboratory`,
 layers require increasing `depth_top_cm`/`depth_bottom_cm`; concentration,
 water, and EC values are non-negative and pH is constrained to `[0, 14]`.
 
-Observations are parsed and preserved. Level 1 decision-time fusion is now
-implemented for a same-date crop LAI measurement: it replaces raw RL feature
-index 2 before VecNormalize and policy inference. This is a policy-observation
-override only; the WOFOST/PCSE state is never mutated. Older or future-dated
-observations are not silently applied.
+Observations are parsed and preserved. Level 1 decision-time fusion supports
+same-date crop LAI and complete soil profiles: LAI replaces raw RL feature
+index 2, NO3 replaces index 4, NH4 replaces index 5, and volumetric water
+replaces index 6 before VecNormalize and policy inference. This is a
+policy-observation override only; the WOFOST/PCSE state is never mutated.
+Older or future-dated observations are not silently applied.
 
 The current `observations.soil` array is preserved by the schema. The
 `serving.soil_observation.SoilObservationAdapter` maps its depth intervals to
@@ -115,7 +116,8 @@ The observation-fusion levels are deliberately separated:
 
 * Level 0: parse and preserve a measurement only.
 * Level 1: apply an explicitly supported, same-date replacement to the raw
-  policy observation. The current implementation supports LAI only.
+  policy observation. The current implementation supports LAI plus complete
+  0–120 cm NO3, NH4, and volumetric-water profiles.
 * Level 2: assimilate a measurement into WOFOST/PCSE internal state. This is
   not implemented.
 
@@ -143,7 +145,11 @@ boundary:
 | Fertilizer N-form metadata | `RESERVED` | Preserved but not used by the discrete RL action. |
 | `observations.crop.lai` | `ACTIVE_DECISION_OVERRIDE` | Same-date LAI replaces raw RL feature index 2 at a decision boundary; WOFOST state remains unchanged. |
 | Other crop observations | `RESERVED` | Preserved; no direct feature in the current 22-dimensional policy observation. |
-| Soil observations | `RESERVED` | Preserved; `SoilObservationAdapter` provides validated depth/unit conversion, but policy activation remains a separate step. |
+| Soil observations | `ACTIVE_DECISION_OVERRIDE` | Same-date complete profiles can update supported raw RL soil features; WOFOST state remains unchanged. |
+| `observations.soil.no3_n_mg_kg` | `ACTIVE_DECISION_OVERRIDE` | Depth-mapped to raw feature index 4 as kg N/ha; observation density or explicit model RHOD fallback is audited. |
+| `observations.soil.nh4_n_mg_kg` | `ACTIVE_DECISION_OVERRIDE` | Depth-mapped to raw feature index 5 as kg N/ha; observation density or explicit model RHOD fallback is audited. |
+| `observations.soil.volumetric_water_content` | `ACTIVE_DECISION_OVERRIDE` | Depth-mapped to raw feature index 6 as mean cm water across model layers. |
+| `observations.soil.soil_water` | `RESERVED` | Preserved but not used because its physical semantics do not identify PCSE WC unambiguously. |
 | Weather history/forecast | `RESERVED` | Preserved; no provider override. |
 | Decision context | `RESERVED` | Preserved request metadata. |
 | Custom irrigation history | `UNSUPPORTED` | Current irrigation is fixed by agromanagement. |

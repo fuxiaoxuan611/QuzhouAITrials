@@ -1,9 +1,9 @@
 """Convert canonical soil observations to current WOFOST/SB3 soil features.
 
-This module is an observation adapter only. It never writes to a PCSE object
-and it does not activate NO3, NH4, or WC in the policy fusion path. The
-conversion is depth based: observed intervals are intersected with the
-authoritative model intervals instead of being paired by list position.
+This module is an observation adapter only. It never writes to a PCSE object.
+The conversion is depth based: observed intervals are intersected with the
+authoritative model intervals instead of being paired by list position. Its
+derived values can be consumed by the Level 1 policy-observation fusion path.
 """
 
 from __future__ import annotations
@@ -189,6 +189,7 @@ class SoilObservationAdapter:
         for index, value in enumerate(result):
             if previous_bottom is not None and value.depth_top_cm < previous_bottom - _EPSILON_CM:
                 raise SoilObservationError(
+                    "OVERLAPPING_OBSERVATION_LAYERS: "
                     f"observations[{index}] overlaps the previous observed layer"
                 )
             previous_bottom = value.depth_bottom_cm
@@ -219,27 +220,35 @@ class SoilObservationAdapter:
 
     @staticmethod
     def _feature_value(
+        model_layer: ModelSoilLayer,
         overlaps: tuple[dict[str, Any], ...],
         observations: tuple[SoilLayerObservation, ...],
         feature: str,
         model_thickness_cm: float,
-    ) -> tuple[float | None, str | None]:
+    ) -> tuple[float | None, str | None, tuple[str, ...]]:
         overlap_thickness = sum(item["overlap_thickness_cm"] for item in overlaps)
         if not math.isclose(overlap_thickness, model_thickness_cm, rel_tol=0.0, abs_tol=_EPSILON_CM):
-            return None, "INSUFFICIENT_DEPTH_COVERAGE"
+            return None, "INSUFFICIENT_DEPTH_COVERAGE", ()
 
         total = 0.0
+        density_sources = []
         for item in overlaps:
             observation = observations[item["source_observation_layer"]]
             value = getattr(observation, feature)
             if value is None:
-                return None, f"MISSING_{feature.upper()}"
+                return None, f"MISSING_{feature.upper()}", tuple(density_sources)
             if feature in ("no3_n_mg_kg", "nh4_n_mg_kg"):
-                if observation.bulk_density_g_cm3 is None:
-                    return None, "MISSING_BULK_DENSITY"
+                if observation.bulk_density_g_cm3 is not None:
+                    density = observation.bulk_density_g_cm3
+                    density_sources.append("observation")
+                elif model_layer.bulk_density_g_cm3 is not None:
+                    density = model_layer.bulk_density_g_cm3
+                    density_sources.append("model_config")
+                else:
+                    return None, "MISSING_BULK_DENSITY", tuple(density_sources)
                 total += mg_n_kg_to_kg_ha(
                     value,
-                    observation.bulk_density_g_cm3,
+                    density,
                     item["overlap_thickness_cm"],
                 )
             elif feature == "volumetric_water_content":
@@ -249,7 +258,7 @@ class SoilObservationAdapter:
                 )
             else:  # pragma: no cover - private method guard
                 raise SoilObservationError(f"unsupported soil feature: {feature}")
-        return float(total), None
+        return float(total), None, tuple(density_sources)
 
     def adapt(
         self,
@@ -261,6 +270,7 @@ class SoilObservationAdapter:
         model_layers = []
         per_feature_values: dict[str, list[float]] = {"NO3": [], "NH4": [], "WC": []}
         per_feature_reasons: dict[str, list[str]] = {"NO3": [], "NH4": [], "WC": []}
+        per_feature_audit: dict[str, list[dict[str, Any]]] = {"NO3": [], "NH4": [], "WC": []}
         feature_names = {
             "NO3": "no3_n_mg_kg",
             "NH4": "nh4_n_mg_kg",
@@ -272,10 +282,35 @@ class SoilObservationAdapter:
             overlaps = self._overlaps(model_layer, values)
             derived: dict[str, float | None] = {}
             for output_name, input_name in feature_names.items():
-                value, reason = self._feature_value(
-                    overlaps, values, input_name, model_layer.thickness_cm
+                value, reason, density_sources = self._feature_value(
+                    model_layer, overlaps, values, input_name, model_layer.thickness_cm
                 )
                 derived[output_names[output_name]] = value
+                overlap_thickness = float(
+                    sum(item["overlap_thickness_cm"] for item in overlaps)
+                )
+                per_feature_audit[output_name].append(
+                    {
+                        "model_layer": model_layer.index,
+                        "depth_coverage_cm": overlap_thickness,
+                        "depth_coverage_fraction": float(
+                            overlap_thickness / model_layer.thickness_cm
+                        ),
+                        "source_layers": [
+                            item["source_observation_layer"] for item in overlaps
+                        ],
+                        "bulk_density_source": (
+                            "mixed"
+                            if len(set(density_sources)) > 1
+                            else density_sources[0]
+                            if density_sources
+                            else None
+                        ),
+                        "derived_value": value,
+                        "status": READY_FOR_DECISION_OVERRIDE if value is not None else INSUFFICIENT_INPUT,
+                        "reason": reason,
+                    }
+                )
                 if value is None:
                     per_feature_reasons[output_name].append(reason or "INSUFFICIENT_INPUT")
                 else:
@@ -340,6 +375,7 @@ class SoilObservationAdapter:
                     for feature, reasons in per_feature_reasons.items()
                     if reasons
                 },
+                "feature_audit": per_feature_audit,
                 "ignored_fields": ignored_fields,
             },
         }
