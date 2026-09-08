@@ -1,8 +1,9 @@
 """Integrated canonical-request decision engine for CN-Maize.
 
 The engine coordinates the already-tested management converter, realtime
-WOFOST reconstruction, and LagPPO inference wrapper.  It deliberately does
-not own HTTP, FastGPT/LLM integration, state assimilation, or training.
+WOFOST reconstruction, observation-fusion boundary, and LagPPO inference
+wrapper. It deliberately does not own HTTP, FastGPT/LLM integration, Level 2
+state assimilation, or training.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .management_history import management_to_realtime_input
+from .observation_fusion import ObservationFusionEngine, not_due_audit
 from .rl_inference import RLInferenceEngine
 from .schemas import (
     SCHEMA_VERSION,
@@ -42,7 +44,7 @@ def _iso(value: date | None) -> str | None:
 
 
 class DecisionEngine:
-    """Run one canonical CN-Maize decision without changing model state inputs."""
+    """Run one canonical CN-Maize decision without mutating WOFOST state."""
 
     def __init__(
         self,
@@ -56,6 +58,7 @@ class DecisionEngine:
             config_path=config_path,
             env_split=env_split,
         )
+        self.observation_fusion = ObservationFusionEngine()
         try:
             self.rl = RLInferenceEngine(
                 config_path=config_path,
@@ -177,8 +180,6 @@ class DecisionEngine:
         decision_due = slot is not None
 
         warnings: list[str] = []
-        if canonical.observations is not None:
-            warnings.append("observations_received_but_not_assimilated")
         if canonical.decision_context.allow_irrigation_decision:
             warnings.append("irrigation_decision_not_supported")
         if not decision_due:
@@ -186,11 +187,25 @@ class DecisionEngine:
         if not canonical.decision_context.allow_fertilization_decision:
             warnings.append("fertilization_decision_disabled")
 
+        if decision_due and canonical.decision_context.allow_fertilization_decision:
+            fusion_result = self.observation_fusion.fuse(
+                reconstructed["raw_observation"],
+                canonical.observations,
+                canonical.query_date,
+            )
+            policy_raw_observation = fusion_result["corrected_raw_observation"]
+            observation_fusion = fusion_result["audit"]
+        else:
+            policy_raw_observation = None
+            observation_fusion = not_due_audit(canonical.observations is not None)
+            if decision_due and not canonical.decision_context.allow_fertilization_decision:
+                observation_fusion["mode"] = "fertilization_decision_disabled"
+
         recommendation = None
         constraint_violation = False
         if decision_due and canonical.decision_context.allow_fertilization_decision:
             prediction = self.rl.predict_from_raw_observation(
-                reconstructed["raw_observation"],
+                policy_raw_observation,
                 deterministic=True,
             )
             policy_action = {
@@ -253,7 +268,12 @@ class DecisionEngine:
             "observations": {
                 "received": canonical.observations is not None,
                 "applied_to_model": False,
+                "applied_to_policy": observation_fusion["applied_to_policy"],
+                "applied_to_wofost_state": observation_fusion[
+                    "applied_to_wofost_state"
+                ],
             },
+            "observation_fusion": observation_fusion,
             "model_metadata": metadata,
             "warnings": warnings,
         }

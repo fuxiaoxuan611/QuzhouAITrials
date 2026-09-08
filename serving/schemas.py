@@ -770,8 +770,38 @@ def get_schema_capabilities() -> dict[str, Any]:
                 "status": "UNSUPPORTED",
                 "model_usage": "current model uses fixed agromanagement irrigation",
             },
-            "observations.crop": {"status": "RESERVED", "model_usage": "preserved; not assimilated"},
-            "observations.soil": {"status": "RESERVED", "model_usage": "preserved; not assimilated"},
+            "observations.crop": {
+                "status": "RESERVED",
+                "model_usage": "preserved; only same-date LAI has a decision-time override",
+            },
+            "observations.crop.lai": {
+                "status": "ACTIVE_DECISION_OVERRIDE",
+                "model_usage": "same-date replacement of RL raw feature index 2; WOFOST state unchanged",
+            },
+            "observations.crop.spad": {
+                "status": "RESERVED",
+                "model_usage": "preserved; no direct feature in the current 22-dimensional policy observation",
+            },
+            "observations.soil": {
+                "status": "RESERVED",
+                "model_usage": "preserved; no Level 1 override until units and layer conversion are closed",
+            },
+            "observations.soil.no3_n_mg_kg": {
+                "status": "RESERVED",
+                "model_usage": "PCSE exposes layered kg N ha-1 amounts; canonical mg N kg-1 conversion is not active",
+            },
+            "observations.soil.nh4_n_mg_kg": {
+                "status": "RESERVED",
+                "model_usage": "PCSE exposes layered kg N ha-1 amounts; canonical mg N kg-1 conversion is not active",
+            },
+            "observations.soil.soil_water": {
+                "status": "RESERVED",
+                "model_usage": "canonical water semantics do not directly match the current scalar WC feature",
+            },
+            "observations.soil.volumetric_water_content": {
+                "status": "RESERVED",
+                "model_usage": "canonical volumetric content does not directly match the current scalar WC feature",
+            },
             "weather.openmeteo": {
                 "status": "ACTIVE",
                 "model_usage": "current CN-Maize runtime provider",

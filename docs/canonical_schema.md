@@ -81,8 +81,19 @@ Allowed `source` values are `field_measurement`, `sensor`, `laboratory`,
 layers require increasing `depth_top_cm`/`depth_bottom_cm`; concentration,
 water, and EC values are non-negative and pH is constrained to `[0, 14]`.
 
-Observations are parsed and preserved in the management conversion output but
-are not assimilated into the current WOFOST state.
+Observations are parsed and preserved. Level 1 decision-time fusion is now
+implemented for a same-date crop LAI measurement: it replaces raw RL feature
+index 2 before VecNormalize and policy inference. This is a policy-observation
+override only; the WOFOST/PCSE state is never mutated. Older or future-dated
+observations are not silently applied.
+
+The observation-fusion levels are deliberately separated:
+
+* Level 0: parse and preserve a measurement only.
+* Level 1: apply an explicitly supported, same-date replacement to the raw
+  policy observation. The current implementation supports LAI only.
+* Level 2: assimilate a measurement into WOFOST/PCSE internal state. This is
+  not implemented.
 
 ## Weather and decision context
 
@@ -106,10 +117,12 @@ boundary:
 | Open-Meteo provider metadata | `ACTIVE` | Matches the current runtime provider. |
 | Request/location/crop metadata | `RESERVED` | Validated and preserved; YAML remains authoritative. |
 | Fertilizer N-form metadata | `RESERVED` | Preserved but not used by the discrete RL action. |
-| Crop/soil observations | `RESERVED` | Preserved; no state assimilation. |
+| `observations.crop.lai` | `ACTIVE_DECISION_OVERRIDE` | Same-date LAI replaces raw RL feature index 2 at a decision boundary; WOFOST state remains unchanged. |
+| Other crop observations | `RESERVED` | Preserved; no direct feature in the current 22-dimensional policy observation. |
+| Soil observations | `RESERVED` | Preserved; NO3/NH4/WC unit and layer conversions are not closed for override. |
 | Weather history/forecast | `RESERVED` | Preserved; no provider override. |
 | Decision context | `RESERVED` | Preserved request metadata. |
 | Custom irrigation history | `UNSUPPORTED` | Current irrigation is fixed by agromanagement. |
 
-No FastAPI endpoint, FastGPT adapter, observation assimilation, or new RL
-training behavior is part of this schema freeze.
+No FastAPI endpoint, FastGPT adapter, Level 2 WOFOST state assimilation, or
+new RL training behavior is part of this schema freeze.
