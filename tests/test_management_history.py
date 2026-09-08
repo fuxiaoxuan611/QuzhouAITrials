@@ -22,9 +22,12 @@ def request_payload(**management_overrides):
         "fertilization_history": [],
         "irrigation_history": [],
         "fertilization_history_complete": True,
+        "irrigation_history_complete": True,
     }
     management.update(management_overrides)
     return {
+        "schema_version": "1.0",
+        "request": {},
         "location": {"latitude": 36.77, "longitude": 114.96},
         "crop": {
             "name": "maize",
@@ -33,6 +36,8 @@ def request_payload(**management_overrides):
         },
         "query_date": "2025-07-14",
         "management": management,
+        "weather": {"provider": "openmeteo", "use_external_provider": True},
+        "decision_context": {},
     }
 
 
@@ -111,14 +116,21 @@ class TestManagementHistory(unittest.TestCase):
     def test_observations_are_preserved_but_not_applied(self):
         payload = request_payload()
         payload["observations"] = {
-            "date": "2025-07-14",
-            "lai": 1.48,
-            "soil_water": 7.4,
-            "no3": 45.8,
-            "nh4": 2.6,
+            "observation_date": "2025-07-14",
+            "source": "field_measurement",
+            "crop": {"lai": 1.48},
+            "soil": [
+                {
+                    "depth_top_cm": 0,
+                    "depth_bottom_cm": 20,
+                    "soil_water": 7.4,
+                    "no3_n_mg_kg": 45.8,
+                    "nh4_n_mg_kg": 2.6,
+                }
+            ],
         }
         result = management_to_realtime_input(normalize_decision_request(payload))
-        self.assertEqual(result["observations"]["lai"], 1.48)
+        self.assertEqual(result["observations"]["crop"]["lai"], 1.48)
         self.assertFalse(result["observations_applied_to_model"])
 
     def test_query_before_sowing_fails(self):
