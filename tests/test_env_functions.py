@@ -1,6 +1,8 @@
 import unittest
 import tests.initialize_env as init_env
+from tests.network_utils import network_test
 
+@network_test
 class TestEnvs(unittest.TestCase):
     def setUp(self) -> None:
         self.env_init = init_env.initialize_env(random_init=True, seed=10, pcse_env=2)

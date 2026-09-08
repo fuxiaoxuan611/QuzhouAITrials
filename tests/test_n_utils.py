@@ -18,10 +18,12 @@ from pcse_gym.utils.weather_utils.weather_functions import generate_date_list
 from pcse_gym.envs.common_env import AgroManagementContainer
 from tests import initialize_env as init_env
 from pcse_gym.utils.nitrogen_helpers import get_deposition_amount, get_disaggregated_deposition
+from tests.network_utils import network_test
 
 import matplotlib.pyplot as plt
 
 
+@network_test
 class TestNitrogenUtils(unittest.TestCase):
     def setUp(self):
         self.env = init_env.initialize_env(reward='NUE', pcse_env=2, start_type='sowing')
@@ -125,6 +127,7 @@ class TestNitrogenUtils(unittest.TestCase):
         self.assertAlmostEqual(nh4_depo, 16.66, 0)
 
 
+@network_test
 class NitrogenUseEfficiency(unittest.TestCase):
     def setUp(self):
         self.nue1 = init_env.initialize_env_nue_reward()

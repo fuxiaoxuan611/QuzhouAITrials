@@ -2,14 +2,18 @@ import unittest
 import numpy as np
 
 import tests.initialize_env as init_env
+from tests.network_utils import network_test
 
 
+@network_test
 class ZeroEnv(unittest.TestCase):
     def setUp(self) -> None:
         self.years = [*range(1990, 2022)]
-        self.env_sow = init_env.initialize_env(reward="DEF", start_type='sowing')
-        self.env_emerge = init_env.initialize_env(reward="DEF", start_type='emergence')
-        self.random_init = init_env.initialize_env(reward="DEF", start_type='sowing', random_init=True)
+        self.env_sow = init_env.initialize_env(reward="DEF", pcse_env=2, start_type='sowing')
+        self.env_emerge = init_env.initialize_env(reward="DEF", pcse_env=2, start_type='emergence')
+        self.random_init = init_env.initialize_env(
+            reward="DEF", pcse_env=2, start_type='sowing', random_init=True
+        )
 
     @staticmethod
     def run_steps(env, year, terminated):

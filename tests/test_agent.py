@@ -2,10 +2,12 @@ import unittest
 from pcse_gym.agent.masked_actorcriticpolicy import MaskedRecurrentActorCriticPolicy, MaskedActorCriticPolicy
 from sb3_contrib.common.recurrent.type_aliases import RNNStates
 import pcse_gym.initialize_envs as init_env
+from tests.network_utils import network_test
 
 import torch
 
 
+@network_test
 class TestMaskedRecurrentActorCriticPolicy(unittest.TestCase):
     def setUp(self):
         self.env = init_env.initialize_env(pcse_env=2)
@@ -67,6 +69,7 @@ class TestMaskedRecurrentActorCriticPolicy(unittest.TestCase):
         self.assertEqual(actions.item(), 0)
 
 
+@network_test
 class TestCustomActorCriticPolicy(unittest.TestCase):
     def setUp(self):
         self.env = init_env.initialize_env(pcse_env=2)

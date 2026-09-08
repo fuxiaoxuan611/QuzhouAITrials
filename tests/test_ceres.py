@@ -3,8 +3,10 @@ from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 import tests.initialize_env as init_env
 from pcse_gym.utils.eval import FindOptimum
 import pcse_gym.utils.defaults as defaults
+from tests.network_utils import network_test
 
 
+@network_test
 class TestCeres(unittest.TestCase):
     def setUp(self):
         self.env = init_env.initialize_env(pcse_env=0, crop_features=defaults.get_default_crop_features(pcse_env=0))

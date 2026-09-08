@@ -11,9 +11,20 @@ import pcse_gym.utils.defaults as defaults
 # TODO: figure out a more robust way of obtaining the file paths
 class TestModel(unittest.TestCase):
     def test_model(self):
-        file_path = os.path.dirname(os.path.realpath(__file__))
-        model_path = os.path.join(file_path, 'model-1')
-        stats_path = os.path.join(file_path, 'model-1.pkl')
+        model_path = os.environ.get("QUZHOU_TEST_MODEL_PATH")
+        if not model_path:
+            self.skipTest(
+                "MODEL-INTEGRATION test; set QUZHOU_TEST_MODEL_PATH explicitly"
+            )
+        if os.environ.get("RUN_NETWORK_TESTS") != "1":
+            self.skipTest("NASA POWER network integration test; enable explicitly")
+        stats_path = os.environ.get("QUZHOU_TEST_ENV_STATS_PATH")
+        if not stats_path:
+            stats_path = os.path.splitext(model_path)[0] + ".pkl"
+        if not os.path.exists(stats_path):
+            self.skipTest(
+                "MODEL-INTEGRATION test; set QUZHOU_TEST_ENV_STATS_PATH to existing VecNormalize statistics"
+            )
         custom_objects = {"lr_schedule": lambda x: 0.0002, "clip_range": lambda x: 0.3}
         custom_objects["action_space"] = gym.spaces.Discrete(3)
         model_cropgym = PPO.load(model_path, custom_objects=custom_objects, device='cuda', print_system_info=True)

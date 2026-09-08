@@ -1,12 +1,32 @@
 import unittest
+import gymnasium as gym
 import yaml
 import os
 import numpy as np
 
-import pcse.util
 import tests.initialize_env as init_env
-from pcse_gym.utils.normalization import RunningMeanStdPO, VecNormalizePO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from pcse_gym.envs.constraints import ActionConstrainer
+from tests.network_utils import network_test
+
+
+class _ActionLimitDummyEnv(gym.Env):
+    """Minimal local env for testing ActionConstrainer without weather I/O."""
+
+    metadata = {"render_modes": []}
+
+    def __init__(self, action_space):
+        super().__init__()
+        self.action_space = action_space
+        self.observation_space = gym.spaces.Box(
+            low=-1.0, high=1.0, shape=(1,), dtype=np.float32
+        )
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        return np.zeros(1, dtype=np.float32), {}
+
+    def step(self, action):
+        return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
 
 
 # class TestRecoveryRate(unittest.TestCase):
@@ -32,10 +52,23 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 class ActionLimit(unittest.TestCase):
     def setUp(self):
-        self.env_meas = init_env.initialize_env_action_limit_measure(4)
-        self.env_no_meas = init_env.initialize_env_action_limit_no_measure(4)
-        self.env_budget = init_env.initialize_env_action_limit_budget_no_measure(5, 180)
-        self.env_budget_meas = init_env.initialize_env_action_limit_budget_measure(6, 180)
+        self.env_meas = ActionConstrainer(
+            _ActionLimitDummyEnv(gym.spaces.MultiDiscrete([7, 2, 2, 2, 2, 2])),
+            action_limit=4,
+        )
+        self.env_no_meas = ActionConstrainer(
+            _ActionLimitDummyEnv(gym.spaces.Discrete(7)), action_limit=4
+        )
+        self.env_budget = ActionConstrainer(
+            _ActionLimitDummyEnv(gym.spaces.Discrete(7)),
+            action_limit=5,
+            n_budget=180,
+        )
+        self.env_budget_meas = ActionConstrainer(
+            _ActionLimitDummyEnv(gym.spaces.MultiDiscrete([7, 2, 2, 2, 2, 2])),
+            action_limit=6,
+            n_budget=180,
+        )
 
     def test_limit_measure(self):
         self.env_meas.reset()
@@ -105,10 +138,11 @@ class ActionLimit(unittest.TestCase):
         self.assertListEqual(actions_hist, actions_expected)
 
 
+@network_test
 class TestStartType(unittest.TestCase):
     def setUp(self):
-        self.env = init_env.initialize_env_sow()
-        self.env2 = init_env.initialize_env_emergence()
+        self.env = init_env.initialize_env(pcse_env=2, start_type='sowing')
+        self.env2 = init_env.initialize_env(pcse_env=2, start_type='emergence')
 
     def test_sow_start(self):
         self.env.reset()
@@ -137,6 +171,7 @@ class TestStartType(unittest.TestCase):
         self.assertEqual(year[0], int(self.env2.date.year))
 
 
+@network_test
 class TestEnvFeatures(unittest.TestCase):
     def setUp(self):
         self.env = init_env.initialize_env_random_init()

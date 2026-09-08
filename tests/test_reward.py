@@ -5,8 +5,10 @@ from math import isclose
 
 import tests.initialize_env as init_env
 from pcse_gym.envs.rewards import Rewards as RewardContainer
+from tests.network_utils import network_test
 
 
+@network_test
 class Rewards(unittest.TestCase):
     def setUp(self):
         self.dep = init_env.initialize_env_reward_dep()
@@ -135,6 +137,7 @@ class ContainerNUERewardTest(unittest.TestCase):
         )
         self.assertLess(expected, 1.0)
 
+    @network_test
     def test_nue_environment_passes_zero_nitrogen_baseline_to_terminal_reward(self):
         env = init_env.initialize_env_nue_reward()
         captured = {}
