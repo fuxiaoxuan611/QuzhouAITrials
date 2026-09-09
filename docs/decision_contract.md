@@ -72,6 +72,17 @@ query is between boundaries, isolated management scenarios, deterministic
 weather-risk evidence, and timing advice. `operation_advice` may delay or
 monitor an RL rate, but never invents a new nitrogen rate.
 
+The top-level `forecast` is a future WOFOST state projection, not a duplicate
+query-date state summary. `horizon_end` is `query_date` plus the explicitly
+requested horizon, or the configured seven-day default when the request omits
+one, capped at crop end. `uses_forecast` is true whenever that horizon is after
+the query date. Scenario evaluation can extend weather coverage beyond this
+public forecast horizon: its `horizon_date` is at least one model day after the
+latest generated management event (including the generator's possible
+one-day weather delay), capped at crop end. The evaluator rejects scenario
+events outside its horizon. This extension never changes the current policy
+observation or the projected-decision timing.
+
 ## Observations
 
 The `observations` object distinguishes received data from model mutation:

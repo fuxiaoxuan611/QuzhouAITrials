@@ -7,6 +7,7 @@ import numpy as np
 
 from serving.management_events import FertilizerEvent, ManagementTimeline
 from serving.decision_engine import DecisionEngine
+from serving.forward_simulation import ForwardSimulator
 from serving.operation_advice import OperationAdvice
 from serving.scenario_evaluation import ManagementScenario, ScenarioEvaluator
 from serving.season_calendar import SeasonCalendarResolver
@@ -309,6 +310,68 @@ class TestDynamicContracts(unittest.TestCase):
             {item["scenario_id"]: item["state_at_horizon"] for item in reverse},
         )
 
+    def test_real_scenarios_advance_apply_events_and_remain_isolated(self):
+        scenarios = (
+            ManagementScenario("A"),
+            ManagementScenario(
+                "B",
+                fertilizer_events=(FertilizerEvent(date(2026, 9, 5), 20),),
+            ),
+            ManagementScenario(
+                "C",
+                fertilizer_events=(FertilizerEvent(date(2026, 9, 8), 20),),
+            ),
+        )
+        calendar = SeasonCalendarResolver().resolve(
+            "maize", "Quzhou_maize_2025_Opt", date(2026, 6, 9)
+        )
+        records = tuple(
+            weather_record(day, WeatherDataKind.FORECAST)
+            for day in date_range(calendar.campaign_start_date, date(2026, 9, 10))
+        )
+        historical = ManagementTimeline.from_values(
+            [{"date": "2026-08-25", "n_rate_kg_ha": 30.0}], []
+        )
+        evaluator = ScenarioEvaluator(ForwardSimulator(CONFIG_PATH))
+
+        def evaluate(values):
+            return {
+                item["scenario_id"]: item
+                for item in evaluator.evaluate(
+                    scenarios=values,
+                    calendar=calendar,
+                    weather_records=records,
+                    historical_management=historical,
+                    query_date=date(2026, 9, 3),
+                    horizon_date=date(2026, 9, 10),
+                )
+            }
+
+        forward = evaluate(scenarios)
+        reverse = evaluate(tuple(reversed(scenarios)))
+        self.assertEqual(
+            {key: value["state_at_horizon"] for key, value in forward.items()},
+            {key: value["state_at_horizon"] for key, value in reverse.items()},
+        )
+        self.assertEqual(
+            {json.dumps(value["state_at_query"], sort_keys=True) for value in forward.values()},
+            {json.dumps(forward["A"]["state_at_query"], sort_keys=True)},
+        )
+        for value in forward.values():
+            self.assertNotEqual(value["state_at_query"], value["state_at_horizon"])
+
+        def mineral_n(state):
+            return sum(state["NO3"]) + sum(state["NH4"])
+
+        self.assertNotAlmostEqual(
+            mineral_n(forward["A"]["state_at_horizon"]),
+            mineral_n(forward["B"]["state_at_horizon"]),
+        )
+        self.assertNotAlmostEqual(
+            mineral_n(forward["A"]["state_at_horizon"]),
+            mineral_n(forward["C"]["state_at_horizon"]),
+        )
+
 
 class TestDynamicAcceptance(unittest.TestCase):
     def test_2026_off_boundary_request_projects_next_decision(self):
@@ -342,20 +405,15 @@ class TestDynamicAcceptance(unittest.TestCase):
                 "management": {
                     "fertilization_history_complete": True,
                     "fertilization_history": [
-                        {"date": "2026-06-23", "n_rate_kg_ha": 30.0},
-                        {"date": "2026-08-25", "n_rate_kg_ha": 20.0},
+                        {"date": "2026-08-25", "n_rate_kg_ha": 30.0},
                     ],
                     "irrigation_history_complete": True,
-                    "irrigation_history": [
-                        {"date": "2026-07-01", "amount_mm": 20.0},
-                        {"date": "2026-08-20", "amount_mm": 15.0},
-                    ],
+                    "irrigation_history": [],
                 },
                 "observations": None,
                 "weather": {
                     "provider": "openmeteo",
                     "use_external_provider": True,
-                    "forecast_horizon_days": 7,
                 },
                 "decision_context": {"decision_mode": "historical_replay"},
             })
@@ -365,9 +423,34 @@ class TestDynamicAcceptance(unittest.TestCase):
             self.assertEqual(result["next_decision_date"], "2026-09-08")
             self.assertTrue(result["projected_next_decision"]["projected"])
             self.assertTrue(result["projected_next_decision"]["uses_forecast"])
+            self.assertEqual(result["projected_next_decision"]["decision_date"], "2026-09-08")
+            self.assertEqual(
+                result["projected_next_decision"]["action_application_date"],
+                "2026-09-15",
+            )
             self.assertEqual(result["model_metadata"]["validation_status"], "engineering_only")
             self.assertFalse(result["model_metadata"]["validated_for_agronomic_recommendation"])
             self.assertEqual(result["weather_context"]["forecast"]["coverage_start"], "2026-09-04")
+            self.assertEqual(result["weather_context"]["forecast"]["coverage_end"], "2026-09-17")
+            self.assertEqual(result["forecast"]["horizon_days"], 7)
+            self.assertEqual(result["forecast"]["horizon_end"], "2026-09-10")
+            self.assertTrue(result["forecast"]["uses_forecast"])
+            self.assertTrue(result["forecast"]["state_estimated"])
+            self.assertEqual(result["forecast"]["scenario_horizon_end"], "2026-09-17")
+
+            scenarios = {item["scenario_id"]: item for item in result["scenario_evaluation"]}
+            self.assertEqual(set(scenarios), {"no_additional_n", "rl_policy_rate"})
+            self.assertEqual(
+                scenarios["rl_policy_rate"]["fertilizer_events"][0]["date"],
+                "2026-09-15",
+            )
+            for scenario in scenarios.values():
+                self.assertEqual(scenario["horizon_date"], "2026-09-17")
+                self.assertNotEqual(scenario["state_at_query"], scenario["state_at_horizon"])
+            self.assertNotEqual(
+                scenarios["no_additional_n"]["state_at_horizon"]["NO3"],
+                scenarios["rl_policy_rate"]["state_at_horizon"]["NO3"],
+            )
         finally:
             engine.close()
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Iterable
 
+from .errors import ScenarioEvaluationError
 from .forward_simulation import ForwardSimulationResult, ForwardSimulator
 from .management_events import FertilizerEvent, IrrigationEvent, ManagementTimeline
 from .season_calendar import SeasonCalendar
@@ -95,6 +96,19 @@ class ScenarioEvaluator:
     ) -> list[dict[str, Any]]:
         results = []
         for scenario in scenarios:
+            scenario_events = (*scenario.fertilizer_events, *scenario.irrigation_events)
+            outside_horizon = tuple(
+                event.date for event in scenario_events if event.date > horizon_date
+            )
+            if outside_horizon:
+                raise ScenarioEvaluationError(
+                    "scenario management event falls outside evaluation horizon",
+                    details={
+                        "scenario_id": scenario.scenario_id,
+                        "horizon_date": horizon_date.isoformat(),
+                        "event_dates": [item.isoformat() for item in outside_horizon],
+                    },
+                )
             simulated = self.simulator.simulate(
                 scenario_id=scenario.scenario_id,
                 calendar=calendar,

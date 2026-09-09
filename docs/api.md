@@ -21,6 +21,12 @@ transport parsing; canonical validation remains in `serving.schemas` and the
 decision engine. The response is the documented
 [`DecisionResult v1.1`](decision_contract.md).
 
+In a weather-aware result, top-level `forecast.horizon_end` is the future
+WOFOST forecast endpoint (seven days by default), while each
+`scenario_evaluation[].horizon_date` may be later so every generated future
+management event is included and has at least one post-event simulation day.
+Future weather is never inserted into the current RL policy observation.
+
 `POST /v1/weather/context` accepts `location`, `query_date`, optional
 `sowing_date`, `forecast_horizon_days`, `decision_mode`, `provider`, and
 `as_of`. It returns provider-neutral daily coverage and provenance. In live

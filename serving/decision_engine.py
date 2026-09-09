@@ -40,6 +40,10 @@ from .schemas import (
 from .wofost_realtime import WOFOSTRealtimeEngine
 
 
+_SCENARIO_MAX_TIMING_DELAY_DAYS = 1
+_SCENARIO_POST_EVENT_EVALUATION_DAYS = 1
+
+
 @dataclass(frozen=True)
 class DecisionSlot:
     """One policy observation boundary and its following action interval."""
@@ -381,6 +385,55 @@ class DecisionEngine:
         horizon = canonical.weather.forecast_horizon_days
         if horizon is None:
             horizon = canonical.decision_context.forecast_horizon_days
+        if horizon is None:
+            horizon = self.weather_service.forecast_default_days
+        horizon = int(horizon)
+
+        slot = self._slot_for(
+            canonical.query_date,
+            crop_start=calendar.crop_start_date,
+            crop_end=calendar.crop_end_date,
+        )
+        previous, following = self._previous_next_slots(
+            canonical.query_date,
+            crop_start=calendar.crop_start_date,
+            crop_end=calendar.crop_end_date,
+        )
+        forecast_end_date = min(
+            calendar.crop_end_date,
+            canonical.query_date + timedelta(days=horizon),
+        )
+
+        # The public forecast state follows the requested/default horizon. A
+        # scenario containing a future policy action needs additional weather
+        # coverage through the event and at least one post-event model day.
+        # ScenarioGenerator can delay an action by one day for weather risk,
+        # so reserve that day as well. With the current seven-day policy this
+        # remains within Open-Meteo's 16-day provider capability.
+        scenario_action_date = None
+        if canonical.decision_context.allow_fertilization_decision:
+            if slot is not None:
+                scenario_action_date = slot.action_application_date
+            elif following is not None and forecast_end_date >= following.observation_date:
+                scenario_action_date = following.action_application_date
+        scenario_horizon_date = forecast_end_date
+        if scenario_action_date is not None:
+            scenario_horizon_date = min(
+                calendar.crop_end_date,
+                max(
+                    scenario_horizon_date,
+                    scenario_action_date
+                    + timedelta(
+                        days=(
+                            _SCENARIO_MAX_TIMING_DELAY_DAYS
+                            + _SCENARIO_POST_EVENT_EVALUATION_DAYS
+                        )
+                    ),
+                ),
+            )
+        weather_horizon_days = max(
+            0, (scenario_horizon_date - canonical.query_date).days
+        )
         # The canonical lightweight WeatherObservation is not a full
         # WeatherRecord.  Full deterministic records can still be supplied by
         # an injected WeatherService/provider; incomplete client records stay
@@ -388,7 +441,7 @@ class DecisionEngine:
         weather_context = self.weather_service.get_context(
             campaign_start=calendar.campaign_start_date,
             query_date=canonical.query_date,
-            forecast_horizon_days=horizon,
+            forecast_horizon_days=weather_horizon_days,
             decision_mode=canonical.decision_context.decision_mode,
             provider_name=canonical.weather.provider,
             latitude=canonical.location.latitude,
@@ -408,16 +461,6 @@ class DecisionEngine:
         )
         try:
             reconstructed = dynamic_realtime.reconstruct(canonical.query_date)
-            slots = self._decision_slots(
-                crop_start=calendar.crop_start_date,
-                crop_end=calendar.crop_end_date,
-            )
-            slot = self._slot_for(canonical.query_date, crop_start=calendar.crop_start_date, crop_end=calendar.crop_end_date)
-            previous, following = self._previous_next_slots(
-                canonical.query_date,
-                crop_start=calendar.crop_start_date,
-                crop_end=calendar.crop_end_date,
-            )
             warnings = list(weather_context.get("warnings", []))
             if not slot:
                 warnings.append("query_date_is_not_a_policy_decision_date")
@@ -451,8 +494,7 @@ class DecisionEngine:
 
             projected = None
             if slot is None and following is not None:
-                forecast_end = date.fromisoformat(weather_context["forecast"]["coverage_end"]) if weather_context["forecast"].get("coverage_end") else None
-                if forecast_end is not None and forecast_end >= following.observation_date:
+                if forecast_end_date >= following.observation_date:
                     next_state = dynamic_realtime.reconstruct(following.observation_date)
                     next_prediction = self.rl.predict_from_raw_observation(next_state["raw_observation"], deterministic=True)
                     projected = {
@@ -468,16 +510,17 @@ class DecisionEngine:
                 else:
                     warnings.append("FORECAST_HORIZON_INSUFFICIENT")
 
-            forecast_end_date = min(
-                calendar.crop_end_date,
-                canonical.query_date + __import__("datetime").timedelta(days=int(horizon or 0)),
-            )
             horizon_state = dynamic_realtime.reconstruct(forecast_end_date)
             forecast = {
+                "horizon_days": horizon,
                 "horizon_end": forecast_end_date.isoformat(),
                 "state_at_horizon": horizon_state["crop_state"],
-                "state_estimated": bool(weather_context.get("state_estimated")),
+                "state_estimated": (
+                    forecast_end_date > canonical.query_date
+                    or bool(weather_context.get("state_estimated"))
+                ),
                 "uses_forecast": forecast_end_date > canonical.query_date,
+                "scenario_horizon_end": scenario_horizon_date.isoformat(),
             }
             risk_records = tuple(item for item in records if item.date > canonical.query_date)
             weather_risk = WeatherRiskEvaluator().evaluate(risk_records, as_of=weather_context.get("as_of"))
@@ -498,7 +541,7 @@ class DecisionEngine:
                 weather_records=records,
                 historical_management=management,
                 query_date=canonical.query_date,
-                horizon_date=forecast_end_date,
+                horizon_date=scenario_horizon_date,
             )
             advice = OperationAdvice().build(
                 rl_recommendation=recommendation,
