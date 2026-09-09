@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -34,4 +34,18 @@ class CanonicalDecisionRequestModel(BaseModel):
         return self.model_dump(mode="python")
 
 
-__all__ = ["CanonicalDecisionRequestModel"]
+class WeatherContextRequestModel(BaseModel):
+    """Transport model for the optional external weather tool endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location: dict[str, Any]
+    query_date: date | str
+    sowing_date: date | str | None = None
+    forecast_horizon_days: int = 7
+    decision_mode: str = "auto"
+    provider: str | None = None
+    as_of: datetime | str | None = None
+
+
+__all__ = ["CanonicalDecisionRequestModel", "WeatherContextRequestModel"]

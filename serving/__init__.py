@@ -23,6 +23,15 @@ from .errors import (
     ModelArtifactMissingError,
     ModelEnvironmentIncompatibleError,
     WeatherProviderError,
+    DynamicCalendarInvalidError,
+    ManagementEventInvalidError,
+    WeatherProviderNotConfiguredError,
+    WeatherDataGapError,
+    WeatherTimelineInvalidError,
+    ForecastHorizonInsufficientError,
+    WeatherLiveQueryDayUnavailableError,
+    ForwardSimulationError,
+    ScenarioEvaluationError,
 )
 from .observation_fusion import ObservationFusionEngine, ObservationFusionError
 from .rl_inference import (
@@ -55,6 +64,20 @@ from .schemas import (
     normalize_decision_request,
 )
 from .wofost_realtime import WOFOSTRealtimeEngine
+from .season_calendar import DynamicCalendarError, SeasonCalendar, SeasonCalendarResolver
+from .management_events import (
+    ManagementEventError,
+    ManagementTimeline,
+    FertilizerEvent as DynamicFertilizerEvent,
+    IrrigationEvent as DynamicIrrigationEvent,
+)
+from .weather_records import WeatherDataKind, WeatherRecord, WeatherRecordError
+from .weather_service import HistoricalForecastTimelineBuilder, WeatherService
+from .weather_providers import TimelineWeatherDataProvider
+from .forward_simulation import ForwardSimulationResult, ForwardSimulator
+from .scenario_evaluation import ManagementScenario, ScenarioEvaluator, ScenarioGenerator
+from .weather_risk import WeatherRiskEvaluator, WeatherRiskThresholds
+from .operation_advice import OperationAdvice
 from .soil_observation import (
     ModelSoilLayer,
     SoilObservationAdapter,
@@ -89,6 +112,15 @@ __all__ = [
     "ModelArtifactMissingError",
     "ModelEnvironmentIncompatibleError",
     "WeatherProviderError",
+    "DynamicCalendarInvalidError",
+    "ManagementEventInvalidError",
+    "WeatherProviderNotConfiguredError",
+    "WeatherDataGapError",
+    "WeatherTimelineInvalidError",
+    "ForecastHorizonInsufficientError",
+    "WeatherLiveQueryDayUnavailableError",
+    "ForwardSimulationError",
+    "ScenarioEvaluationError",
     "FertilizationEvent",
     "IrrigationEvent",
     "Location",
@@ -103,6 +135,27 @@ __all__ = [
     "Weather",
     "WeatherObservation",
     "WOFOSTRealtimeEngine",
+    "DynamicCalendarError",
+    "SeasonCalendar",
+    "SeasonCalendarResolver",
+    "ManagementEventError",
+    "ManagementTimeline",
+    "DynamicFertilizerEvent",
+    "DynamicIrrigationEvent",
+    "WeatherDataKind",
+    "WeatherRecord",
+    "WeatherRecordError",
+    "HistoricalForecastTimelineBuilder",
+    "WeatherService",
+    "TimelineWeatherDataProvider",
+    "ForwardSimulationResult",
+    "ForwardSimulator",
+    "ManagementScenario",
+    "ScenarioEvaluator",
+    "ScenarioGenerator",
+    "WeatherRiskEvaluator",
+    "WeatherRiskThresholds",
+    "OperationAdvice",
     "action_index_to_n_rate",
     "build_decision_result",
     "build_action_history",

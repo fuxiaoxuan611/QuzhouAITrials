@@ -12,7 +12,7 @@ import numpy as np
 from .errors import serialize_decision_error
 
 
-DECISION_RESULT_SCHEMA_VERSION = "1.0"
+DECISION_RESULT_SCHEMA_VERSION = "1.1"
 
 # These keys are deliberately explicit.  A caller can rely on them being
 # present even when a decision is not due or a recommendation is unavailable.
@@ -32,6 +32,12 @@ DECISION_RESULT_TOP_LEVEL_KEYS = (
     "observations",
     "model_metadata",
     "warnings",
+    "weather_context",
+    "forecast",
+    "projected_next_decision",
+    "scenario_evaluation",
+    "weather_risk",
+    "operation_advice",
 )
 
 
@@ -125,6 +131,12 @@ def build_decision_result(
     observations: dict[str, Any] | None = None,
     model_metadata: dict[str, Any] | None = None,
     warnings: list[Any] | None = None,
+    weather_context: dict[str, Any] | None = None,
+    forecast: dict[str, Any] | None = None,
+    projected_next_decision: dict[str, Any] | None = None,
+    scenario_evaluation: list[Any] | None = None,
+    weather_risk: list[Any] | None = None,
+    operation_advice: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construct a stable successful result with all v1 core keys."""
 
@@ -149,6 +161,12 @@ def build_decision_result(
         },
         "model_metadata": sanitize_model_metadata(model_metadata),
         "warnings": list(warnings or []),
+        "weather_context": weather_context,
+        "forecast": forecast,
+        "projected_next_decision": projected_next_decision,
+        "scenario_evaluation": list(scenario_evaluation or []),
+        "weather_risk": list(weather_risk or []),
+        "operation_advice": operation_advice,
     }
     return json_safe(result)
 

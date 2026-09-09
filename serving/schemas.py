@@ -31,6 +31,19 @@ class ObservationSource(str, Enum):
     UNKNOWN = "unknown"
 
 
+def _parse_datetime(value: Any, field: str) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise SchemaValidationError(f"{field}: expected ISO datetime") from exc
+    raise SchemaValidationError(f"{field}: expected ISO datetime")
+
+
 def _parse_date(value: Any, field: str) -> date:
     if isinstance(value, datetime):
         return value.date()
@@ -110,18 +123,24 @@ def _optional_bool(data: Mapping[str, Any], key: str, default: bool, field: str)
 class RequestContext:
     request_id: str | None = None
     user_query: str | None = None
+    as_of_datetime: datetime | None = None
 
     @classmethod
     def from_mapping(cls, value: Any) -> "RequestContext":
         data = _required_mapping(value, "request")
-        _reject_unknown(data, {"request_id", "user_query"}, "request")
+        _reject_unknown(data, {"request_id", "user_query", "as_of_datetime"}, "request")
         return cls(
             request_id=_optional_string(data, "request_id", "request.request_id"),
             user_query=_optional_string(data, "user_query", "request.user_query"),
+            as_of_datetime=_parse_datetime(data.get("as_of_datetime"), "request.as_of_datetime"),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"request_id": self.request_id, "user_query": self.user_query}
+        return {
+            "request_id": self.request_id,
+            "user_query": self.user_query,
+            "as_of_datetime": self.as_of_datetime.isoformat() if self.as_of_datetime else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -232,6 +251,10 @@ class FertilizationEvent:
     no3_n_fraction: float | None = None
     application_method: str | None = None
     notes: str | None = None
+    n_recovery: float | None = None
+    f_nh4n: float | None = None
+    f_no3n: float | None = None
+    application_depth_cm: float | None = None
 
     @classmethod
     def from_mapping(cls, value: Any, index: int) -> "FertilizationEvent":
@@ -243,6 +266,7 @@ class FertilizationEvent:
                 "date", "n_rate_kg_ha", "fertilizer_name", "fertilizer_type", "n_form",
                 "urea_n_fraction", "nh4_n_fraction", "no3_n_fraction",
                 "application_method", "notes",
+                "n_recovery", "f_nh4n", "f_no3n", "application_depth_cm",
             },
             field,
         )
@@ -258,6 +282,13 @@ class FertilizationEvent:
             raise SchemaValidationError(
                 f"{field}: urea_n_fraction + nh4_n_fraction + no3_n_fraction must sum to 1"
             )
+        for key in ("n_recovery", "f_nh4n", "f_no3n"):
+            value_number = _optional_number(data, key, f"{field}.{key}")
+            if value_number is not None and not 0 <= value_number <= 1:
+                raise SchemaValidationError(f"{field}.{key}: must be in [0, 1]")
+        depth = _optional_nonnegative(data, "application_depth_cm", f"{field}.application_depth_cm")
+        if depth is not None and depth <= 0:
+            raise SchemaValidationError(f"{field}.application_depth_cm: must be > 0")
         return cls(
             date=_parse_date(data.get("date"), f"{field}.date"),
             n_rate_kg_ha=_nonnegative(data.get("n_rate_kg_ha"), f"{field}.n_rate_kg_ha"),
@@ -269,6 +300,10 @@ class FertilizationEvent:
             no3_n_fraction=fractions["no3_n_fraction"],
             application_method=_optional_string(data, "application_method", f"{field}.application_method"),
             notes=_optional_string(data, "notes", f"{field}.notes"),
+            n_recovery=_optional_number(data, "n_recovery", f"{field}.n_recovery"),
+            f_nh4n=_optional_number(data, "f_nh4n", f"{field}.f_nh4n"),
+            f_no3n=_optional_number(data, "f_no3n", f"{field}.f_no3n"),
+            application_depth_cm=depth,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -283,6 +318,10 @@ class FertilizationEvent:
             "no3_n_fraction": self.no3_n_fraction,
             "application_method": self.application_method,
             "notes": self.notes,
+            "n_recovery": self.n_recovery,
+            "f_nh4n": self.f_nh4n,
+            "f_no3n": self.f_no3n,
+            "application_depth_cm": self.application_depth_cm,
         }
 
 
@@ -290,6 +329,8 @@ class FertilizationEvent:
 class IrrigationEvent:
     date: date
     amount_mm: float
+    efficiency: float | None = None
+    amount_basis: str = "gross"
     method: str | None = None
     duration_min: float | None = None
     notes: str | None = None
@@ -298,10 +339,22 @@ class IrrigationEvent:
     def from_mapping(cls, value: Any, index: int) -> "IrrigationEvent":
         field = f"management.irrigation_history[{index}]"
         data = _required_mapping(value, field)
-        _reject_unknown(data, {"date", "amount_mm", "method", "duration_min", "notes"}, field)
+        _reject_unknown(
+            data,
+            {"date", "amount_mm", "efficiency", "amount_basis", "method", "duration_min", "notes"},
+            field,
+        )
+        efficiency = _optional_number(data, "efficiency", f"{field}.efficiency")
+        if efficiency is not None and not 0 < efficiency <= 1:
+            raise SchemaValidationError(f"{field}.efficiency: must be in (0, 1]")
+        amount_basis = data.get("amount_basis", "gross")
+        if amount_basis not in {"gross", "effective"}:
+            raise SchemaValidationError(f"{field}.amount_basis: expected gross or effective")
         return cls(
             date=_parse_date(data.get("date"), f"{field}.date"),
             amount_mm=_nonnegative(data.get("amount_mm"), f"{field}.amount_mm"),
+            efficiency=efficiency,
+            amount_basis=amount_basis,
             method=_optional_string(data, "method", f"{field}.method"),
             duration_min=_optional_nonnegative(data, "duration_min", f"{field}.duration_min"),
             notes=_optional_string(data, "notes", f"{field}.notes"),
@@ -311,6 +364,8 @@ class IrrigationEvent:
         return {
             "date": self.date.isoformat(),
             "amount_mm": self.amount_mm,
+            "efficiency": self.efficiency,
+            "amount_basis": self.amount_basis,
             "method": self.method,
             "duration_min": self.duration_min,
             "notes": self.notes,
@@ -634,6 +689,7 @@ class DecisionContext:
     allow_irrigation_decision: bool = False
     max_single_n_rate_kg_ha: float | None = None
     notes: str | None = None
+    decision_mode: str = "auto"
 
     @classmethod
     def from_mapping(cls, value: Any) -> "DecisionContext":
@@ -642,7 +698,7 @@ class DecisionContext:
             data,
             {
                 "decision_type", "forecast_horizon_days", "allow_fertilization_decision",
-                "allow_irrigation_decision", "max_single_n_rate_kg_ha", "notes",
+                "allow_irrigation_decision", "max_single_n_rate_kg_ha", "notes", "decision_mode",
             },
             "decision_context",
         )
@@ -653,6 +709,11 @@ class DecisionContext:
                     "decision_context.forecast_horizon_days: expected an integer >= 0"
                 )
             horizon = int(horizon)
+        decision_mode = data.get("decision_mode", "auto")
+        if decision_mode not in {"auto", "historical_replay", "live", "simulation"}:
+            raise SchemaValidationError(
+                "decision_context.decision_mode: expected auto, historical_replay, live, or simulation"
+            )
         return cls(
             decision_type=_required_string(
                 data.get("decision_type", "nitrogen"), "decision_context.decision_type"
@@ -670,6 +731,7 @@ class DecisionContext:
                 data, "max_single_n_rate_kg_ha", "decision_context.max_single_n_rate_kg_ha"
             ),
             notes=_optional_string(data, "notes", "decision_context.notes"),
+            decision_mode=decision_mode,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -680,6 +742,7 @@ class DecisionContext:
             "allow_irrigation_decision": self.allow_irrigation_decision,
             "max_single_n_rate_kg_ha": self.max_single_n_rate_kg_ha,
             "notes": self.notes,
+            "decision_mode": self.decision_mode,
         }
 
 

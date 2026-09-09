@@ -1,7 +1,7 @@
 # Local Decision HTTP API
 
 `serving.api` is a thin FastAPI transport adapter around the frozen
-`CanonicalDecisionRequest v1` and `DecisionResult v1` contracts. It does not
+`CanonicalDecisionRequest v1.0` and additive `DecisionResult v1.1` contracts. It does not
 implement WOFOST, soil conversion, observation fusion, normalization, RL
 prediction, or decision-calendar logic.
 
@@ -13,12 +13,19 @@ prediction, or decision-calendar logic.
 | GET | `/readyz` | Decision engine was loaded successfully. |
 | GET | `/v1/capabilities` | Schema capabilities and safe service/model metadata. |
 | POST | `/v1/decision` | Canonical schema v1 request to `DecisionEngine.decide()`. |
+| POST | `/v1/weather/context` | Weather-only historical/forecast context for a FastGPT weather tool. |
 
 `POST /v1/decision` accepts the same top-level canonical field names as
 [`canonical_schema.md`](canonical_schema.md). Pydantic performs only HTTP
 transport parsing; canonical validation remains in `serving.schemas` and the
 decision engine. The response is the documented
-[`DecisionResult v1`](decision_contract.md).
+[`DecisionResult v1.1`](decision_contract.md).
+
+`POST /v1/weather/context` accepts `location`, `query_date`, optional
+`sowing_date`, `forecast_horizon_days`, `decision_mode`, `provider`, and
+`as_of`. It returns provider-neutral daily coverage and provenance. In live
+mode the service refuses to use archive data through the query date; an unsafe
+or unavailable query day returns `WEATHER_LIVE_QUERY_DAY_UNAVAILABLE`.
 
 ## Configuration
 
@@ -50,9 +57,12 @@ only after the engine is loaded, otherwise 503. `/v1/decision` returns 503
 when the service is not ready.
 
 Expected domain errors use the error envelope from
-[`decision_contract.md`](decision_contract.md). Request and unsupported
-management errors map to 422; missing artifacts, incompatible model/env, and
-weather-provider errors map to 503; decision-engine errors map to 500.
+[`decision_contract.md`](decision_contract.md). Request, management, invalid
+calendar/timeline, and insufficient-horizon errors map to 422 where they are
+request-domain errors; missing artifacts, incompatible model/env, and
+weather-provider availability errors map to 503; forward simulation and
+unexpected decision-engine errors map to 500. Tracebacks and local paths are
+never returned to callers.
 Unexpected exceptions are logged server-side and return only the transport
 error `INTERNAL_SERVER_ERROR` without tracebacks or local paths.
 

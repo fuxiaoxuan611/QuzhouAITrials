@@ -434,9 +434,13 @@ class PCSEEnv(gym.Env):
         self._weather_provider = kwargs.get('weather_provider')
         self._openmeteo_kwargs = kwargs.get('openmeteo_kwargs', {})
 
-        # Store the agro-management config
-        with open(agro_config, 'r') as f:
-            self._agro_management = yaml.load(f, Loader=yaml.SafeLoader)
+        # Store the agro-management config.  Dynamic serving mode supplies an
+        # in-memory PCSE structure; the legacy path continues to read YAML.
+        if isinstance(agro_config, (dict, list)):
+            self._agro_management = copy.deepcopy(agro_config)
+        else:
+            with open(agro_config, 'r') as f:
+                self._agro_management = yaml.load(f, Loader=yaml.SafeLoader)
         if kwargs.get('remove_timed_n', False):
             self._agro_management = remove_timed_n_events(self._agro_management)
 

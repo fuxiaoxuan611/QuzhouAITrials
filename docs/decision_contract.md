@@ -1,14 +1,16 @@
-# CanonicalDecisionResult v1
+# CanonicalDecisionResult v1.1
 
-This document is the contract boundary between the canonical request and a
-future HTTP/FastGPT adapter. The scientific pipeline remains in the serving
+This document is the contract boundary between the canonical request and the
+local HTTP adapter. The scientific pipeline remains in the serving
 modules: [`canonical_schema.md`](canonical_schema.md) → management conversion →
 WOFOST reconstruction → observation fusion → VecNormalize → LagrangianPPO.
-This contract does not add HTTP, training, or WOFOST state assimilation.
+The request schema remains v1.0. This result contract is an additive v1.1
+extension; it does not change the frozen 22-dimensional policy observation,
+training artifacts, or WOFOST state assimilation boundary.
 
 ## Successful result
 
-`DecisionEngine.decide()` returns a JSON-safe object with these v1 keys on every
+`DecisionEngine.decide()` returns a JSON-safe object with these v1 core keys on every
 successful request:
 
 ```text
@@ -27,6 +29,12 @@ management
 observations
 model_metadata
 warnings
+weather_context
+forecast
+projected_next_decision
+scenario_evaluation
+weather_risk
+operation_advice
 ```
 
 Dates have distinct meanings. `state_date` is the reconstructed WOFOST state;
@@ -51,6 +59,18 @@ The policy action is not clipped when `max_single_n_rate_kg_ha` is exceeded;
 the original action is returned with `constraint_violation: true` and details.
 On a non-boundary date, or when fertilization decisions are disabled,
 `recommendation` is `null` and the result remains `status: "ok"`.
+
+Dynamic fertilizer management uses the active SNOMIN `apply_n_snomin` signal:
+the N rate, fertilizer-form fractions, and application depth affect the model
+through that signal. The legacy `N_recovery` value remains auditable metadata;
+it is not treated as an active SNOMIN input because the configured SNOMIN
+handler does not consume the legacy `apply_n` recovery fields.
+
+The additive weather-aware fields contain provider coverage/provenance,
+forecast-assisted WOFOST state, a projected next policy decision when the
+query is between boundaries, isolated management scenarios, deterministic
+weather-risk evidence, and timing advice. `operation_advice` may delay or
+monitor an RL rate, but never invents a new nitrogen rate.
 
 ## Observations
 
@@ -115,7 +135,7 @@ Expected domain failures can be serialized with
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "request_id": "req-001",
   "status": "error",
   "error": {
@@ -145,22 +165,31 @@ Stable codes are:
 | `MODEL_ARTIFACT_MISSING` | Required model or environment artifact is absent. |
 | `MODEL_ENV_INCOMPATIBLE` | Model and restored environment are incompatible. |
 | `WEATHER_PROVIDER_ERROR` | An external weather provider failed. |
+| `WEATHER_PROVIDER_NOT_CONFIGURED` | Requested weather provider is unavailable in this service. |
+| `WEATHER_DATA_GAP` | The selected timeline has a missing daily record. |
+| `WEATHER_TIMELINE_INVALID` | Weather records are duplicated, malformed, or inconsistent. |
+| `WEATHER_LIVE_QUERY_DAY_UNAVAILABLE` | Safe live query-day data could not be obtained. |
+| `FORECAST_HORIZON_INSUFFICIENT` | Provider coverage is shorter than requested. |
+| `DYNAMIC_CALENDAR_INVALID` | Dynamic season dates are invalid. |
+| `MANAGEMENT_EVENT_INVALID` | A date-based management event is invalid. |
+| `FORWARD_SIMULATION_ERROR` / `SCENARIO_EVALUATION_ERROR` | Isolated future simulation failed. |
 | `DECISION_ENGINE_ERROR` | Other decision-engine-owned failure. |
 
 Unknown programmer/system exceptions are not caught by `DecisionEngine.decide`
 and should be mapped by a future API layer to an internal server error rather
 than presented as a successful result.
 
-## Suggested future HTTP mapping
+## HTTP mapping
 
-This is guidance only; no HTTP route is implemented here.
+The local adapter implements these mappings and also provides a weather-only
+tool endpoint at `POST /v1/weather/context`.
 
 | Domain result | Suggested HTTP status |
 | --- | ---: |
 | `REQUEST_VALIDATION_ERROR` | 400 or 422 |
 | Unsupported management/capability | 422 |
 | Query outside crop period | 422 |
-| Missing model artifact | 503 (or 500 for deployment misconfiguration) |
-| Model/environment incompatibility | 500 |
+| Missing model artifact | 503 |
+| Model/environment incompatibility | 503 |
 | External weather provider error | 503 |
 | Unexpected programmer/system error | 500 |

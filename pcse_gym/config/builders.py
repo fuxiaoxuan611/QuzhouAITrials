@@ -69,7 +69,7 @@ def build_crop_provider_from_config(config):
     raise ValueError(f"Unsupported crop provider: {provider}")
 
 
-def build_crop_model_from_config(config):
+def build_crop_model_from_config(config, crop_model_overrides=None):
     agro = config["crop_model"].get("agro", {})
     kwargs = {
         "model_config": config["crop_model"]["model_config"],
@@ -82,6 +82,8 @@ def build_crop_model_from_config(config):
         "preserve_agro_dates": bool(agro.get("preserve_dates", False)),
         "remove_timed_n": bool(agro.get("remove_timed_n", False)),
     }
+    if crop_model_overrides:
+        kwargs.update(copy.deepcopy(crop_model_overrides))
     kwargs.update(build_weather_from_config(config))
     return kwargs
 
@@ -129,7 +131,7 @@ def build_action_space_from_config(config):
     raise ValueError(f"Unsupported action space type: {action.get('type')}")
 
 
-def build_env_from_config(config, split="train"):
+def build_env_from_config(config, split="train", crop_model_overrides=None):
     from pcse_gym.envs.maize import Maize
     from pcse_gym.envs.winterwheat import WinterWheat
 
@@ -173,7 +175,7 @@ def build_env_from_config(config, split="train"):
         "loc_code": _first_location_code(config["experiment"][f"{split}_locations"]),
         "masked_ac": config["agent"].get("policy_kwargs", {}).get("masked_actor_critic_max_actions", 0),
         "nsteps": config["training"].get("total_timesteps"),
-        **build_crop_model_from_config(config),
+        **build_crop_model_from_config(config, crop_model_overrides=crop_model_overrides),
     }
 
     if env_class is Maize:

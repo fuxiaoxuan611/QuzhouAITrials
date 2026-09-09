@@ -10,6 +10,7 @@ directly through the project's PCSE Engine with no new fertilizer action.
 from __future__ import annotations
 
 import numbers
+import copy
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -19,6 +20,10 @@ import numpy as np
 
 from pcse_gym.config import load_config
 from pcse_gym.config.builders import build_env_from_config
+
+from .management_events import ManagementTimeline
+from .season_calendar import SeasonCalendar
+from .weather_providers.timeline import TimelineWeatherDataProvider
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -111,6 +116,9 @@ class WOFOSTRealtimeEngine:
         config_path: str | Path = "configs/CN-Maize.yaml",
         env_split: str = "test",
         seed: int | None = None,
+        season_calendar: SeasonCalendar | None = None,
+        timeline_provider: TimelineWeatherDataProvider | None = None,
+        management_timeline: ManagementTimeline | None = None,
     ) -> None:
         self.config_path = _resolve_path(config_path)
         if not self.config_path.is_file():
@@ -120,10 +128,36 @@ class WOFOSTRealtimeEngine:
             str(self.config_path),
             ["logging.comet.enabled=false"],
         )
+        self.dynamic = season_calendar is not None or timeline_provider is not None
+        self.season_calendar = season_calendar
+        self.timeline_provider = timeline_provider
+        self.management_timeline = management_timeline or ManagementTimeline()
         self.env_split = env_split
         self.seed = seed if seed is not None else self.config["experiment"].get("seed")
         self.timestep_days = int(self.config["environment"].get("timestep", 7))
-        self.env = build_env_from_config(self.config, split=env_split)
+        if self.dynamic:
+            if season_calendar is None or timeline_provider is None:
+                raise WOFOSTRealtimeError(
+                    "dynamic reconstruction requires season_calendar and timeline_provider"
+                )
+            dynamic_config = copy.deepcopy(self.config)
+            dynamic_config.setdefault("crop_model", {}).setdefault("agro", {})[
+                "preserve_dates"
+            ] = True
+            overrides = {
+                "agro_config": season_calendar.agromanagement_structure(self.management_timeline),
+                "weather_data_provider": timeline_provider,
+                "weather_provider": "timeline",
+                "remove_timed_n": False,
+                "preserve_agro_dates": True,
+            }
+            self.env = build_env_from_config(
+                dynamic_config,
+                split=env_split,
+                crop_model_overrides=overrides,
+            )
+        else:
+            self.env = build_env_from_config(self.config, split=env_split)
 
         if not isinstance(self.env.action_space, gym.spaces.Discrete):
             self.close()
@@ -138,10 +172,14 @@ class WOFOSTRealtimeEngine:
 
     @property
     def crop_start_date(self) -> date:
+        if self.season_calendar is not None:
+            return self.season_calendar.crop_start_date
         return self.env.sb3_env.agmt.crop_start_date
 
     @property
     def crop_end_date(self) -> date:
+        if self.season_calendar is not None:
+            return self.season_calendar.crop_end_date
         return self.env.sb3_env.agmt.crop_end_date
 
     @property
@@ -268,6 +306,9 @@ class WOFOSTRealtimeEngine:
                 f"requested={requested}, crop_end={crop_end}"
             )
 
+        if self.dynamic:
+            return self._reconstruct_dynamic(requested)
+
         actions = self._normalise_actions(action_history)
         days_from_start = (requested - crop_start).days
         required_steps, residual_days = divmod(days_from_start, self.timestep_days)
@@ -352,6 +393,63 @@ class WOFOSTRealtimeEngine:
             "terminated": terminated,
             "truncated": bool(truncated),
             "action_history": actions,
+            "crop_state": self._current_state(),
+            **training_observation,
+        }
+
+    def _reconstruct_dynamic(self, requested: date) -> dict[str, Any]:
+        """Replay a dynamic calendar by date, including timed management events."""
+
+        if self.timeline_provider is None or self.season_calendar is None:
+            raise WOFOSTRealtimeError("dynamic engine is missing calendar or weather timeline")
+        if requested < self.crop_start_date:
+            raise QueryDateError(
+                f"QUERY_DATE_BEFORE_CROP_START: requested={requested}, crop_start={self.crop_start_date}"
+            )
+        if requested > self.crop_end_date:
+            raise QueryDateError(
+                f"QUERY_DATE_AFTER_CROP_END: requested={requested}, crop_end={self.crop_end_date}"
+            )
+        observation = self._reset()
+        days = (requested - self.crop_start_date).days
+        if days:
+            try:
+                self.env.model.run(days=days, action=0)
+            except Exception as exc:
+                raise WOFOSTRealtimeError("DYNAMIC_RECONSTRUCTION_ERROR") from exc
+        sb3_env = self.env.sb3_env
+        # Keep the feature counters semantically aligned with the policy's
+        # legacy wrapper while timed events remain date-based and independent
+        # of RL action boundaries.
+        sb3_env.week = days / 7.0
+        sb3_env.n_action = sum(
+            1 for event in self.management_timeline.fertilizers if event.date <= requested and event.n_rate_kg_ha > 0
+        )
+        sb3_env.cumulative_fertilization = sum(
+            event.n_rate_kg_ha for event in self.management_timeline.fertilizers if event.date <= requested
+        )
+        output = self.env.model.get_output()
+        if not output:
+            raise StateValidationError("STATE_EMPTY: WOFOST returned no output")
+        recent_output = output[-self.timestep_days:]
+        raw = sb3_env._observation(sb3_env._get_observation(recent_output))
+        training_observation = self._format_training_observation(raw)
+        return {
+            "requested_query_date": requested.isoformat(),
+            "simulation_date": self.env.date.isoformat(),
+            "crop_start_date": self.crop_start_date.isoformat(),
+            "crop_end_date": self.crop_end_date.isoformat(),
+            "timestep_days": self.timestep_days,
+            "steps_executed": days // self.timestep_days,
+            "residual_days": days % self.timestep_days,
+            "exact_date_supported": days % self.timestep_days == 0,
+            "terminated": bool(getattr(self.env.model, "terminated", False)),
+            "truncated": False,
+            "action_history": [],
+            "management_events_applied": [
+                event.to_dict()
+                for event in self.management_timeline.events_on(requested)
+            ],
             "crop_state": self._current_state(),
             **training_observation,
         }

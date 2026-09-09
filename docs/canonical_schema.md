@@ -1,10 +1,10 @@
 # Canonical decision schema v1
 
 This document freezes the application-facing decision input accepted by
-`serving.schemas.normalize_decision_request`.  The schema is implemented with
-dependency-free Python dataclasses so a future FastAPI/FastGPT adapter can map
-the same contract onto transport models without changing the WOFOST or RL
-code.
+`serving.schemas.normalize_decision_request`. The request remains schema
+version `1.0`; the additive decision result is version `1.1`. The local
+FastAPI adapter maps the same request contract without changing the WOFOST or
+RL observation semantics.
 
 ## Contract
 
@@ -40,6 +40,15 @@ unknown or incomplete history.  The current converter uses complete
 fertilization history to reconstruct the discrete CN-Maize action history.  A
 non-empty custom irrigation history is rejected because current CN-Maize
 irrigation remains defined by its agromanagement configuration.
+
+For the active SNOMIN pathway, a date-based fertilizer event sends
+`apply_n_snomin` with `amount` (the canonical `n_rate_kg_ha`), composition
+fractions, and application depth in centimetres. The active SNOMIN handler
+does not consume the legacy `apply_n` `N_amount`/`N_recovery` fields, so
+`n_recovery` is retained as canonical/audit metadata and is not claimed as an
+active SNOMIN physics input. Dynamic date-based events are therefore
+regression-tested against the legacy action path without adding an inert
+signal parameter.
 
 ## Observations
 
@@ -97,8 +106,7 @@ Older or future-dated observations are not silently applied.
 The current `observations.soil` array is preserved by the schema. The
 `serving.soil_observation.SoilObservationAdapter` maps its depth intervals to
 the authoritative CN-Maize model layers by geometric overlap. It does not
-modify PCSE/WOFOST state and it does not activate NO3, NH4, or WC in policy
-fusion. For nitrogen, the explicit conversion is:
+modify PCSE/WOFOST state. For nitrogen, the explicit conversion is:
 
 ```text
 mg N/kg soil × bulk density (g/cm³) × overlap thickness (cm) × 0.1
@@ -124,9 +132,20 @@ The observation-fusion levels are deliberately separated:
 ## Weather and decision context
 
 Weather defaults to the current runtime contract: provider `openmeteo` and
-`use_external_provider: true`.  Optional `history` and `forecast` arrays are
-metadata/transport records; the current Open-Meteo provider pipeline remains
-unchanged.
+`use_external_provider: true`. Dynamic seasons use `serving.weather_service`
+to build a continuous daily PCSE timeline. Historical replay may use archive
+data through the query date and forecast from the following day. A live query
+uses archive/reanalysis only through query-date minus one; the query day must
+come from safe recent, observed, nowcast, or forecast data. If it cannot be
+obtained, the service returns `WEATHER_LIVE_QUERY_DAY_UNAVAILABLE` rather than
+silently leaking completed archive data. Each record carries provider/source,
+model, model run, retrieval time, valid time, and `as_of` provenance.
+
+The 31-day pre-sowing campaign offset and 128-day crop duration are explicit
+`quzhou_2025_baseline_assumption` defaults for dynamic seasons. A request may
+provide `expected_harvest_date` to replace the default crop end. Canonical
+irrigation is in gross/effective millimetres; the PCSE signal receives gross
+centimetres and applies the recorded efficiency (default assumption `0.8`).
 
 Decision context defaults to a nitrogen decision with fertilization decisions
 allowed and irrigation decisions disallowed.  These fields are validated and
@@ -150,9 +169,12 @@ boundary:
 | `observations.soil.nh4_n_mg_kg` | `ACTIVE_DECISION_OVERRIDE` | Depth-mapped to raw feature index 5 as kg N/ha; observation density or explicit model RHOD fallback is audited. |
 | `observations.soil.volumetric_water_content` | `ACTIVE_DECISION_OVERRIDE` | Depth-mapped to raw feature index 6 as mean cm water across model layers. |
 | `observations.soil.soil_water` | `RESERVED` | Preserved but not used because its physical semantics do not identify PCSE WC unambiguously. |
-| Weather history/forecast | `RESERVED` | Preserved; no provider override. |
+| Weather history/forecast | `RESERVED` | Preserved as canonical lightweight transport data; dynamic provider timelines are built by WeatherService. |
 | Decision context | `RESERVED` | Preserved request metadata. |
 | Custom irrigation history | `UNSUPPORTED` | Current irrigation is fixed by agromanagement. |
 
-No FastAPI endpoint, FastGPT adapter, Level 2 WOFOST state assimilation, or
-new RL training behavior is part of this schema freeze.
+The current implementation provides a local `POST /v1/decision` adapter and
+an independent `POST /v1/weather/context` tool endpoint. It does not provide a
+FastGPT connector, Level 2 WOFOST state assimilation, or new RL training
+behavior. The bundled policy remains `engineering_only` and is not validated
+for agronomic recommendation.

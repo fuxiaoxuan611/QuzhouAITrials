@@ -17,6 +17,15 @@ class ServiceSettings:
     device: str = "auto"
     policy_validation_status: str = "unknown"
     model_id: str | None = None
+    season_pre_sowing_offset_days: int = 31
+    season_crop_duration_days: int = 128
+    season_max_duration: int = 400
+    weather_timezone: str = "Asia/Shanghai"
+    weather_provider: str = "openmeteo"
+    forecast_default_days: int = 7
+    weather_heavy_rain_mm: float = 25.0
+    weather_heat_tmax_c: float = 35.0
+    weather_dry_days: int = 5
 
     @classmethod
     def from_env(cls) -> "ServiceSettings":
@@ -33,6 +42,15 @@ class ServiceSettings:
                 value("QUZHOU_POLICY_VALIDATION_STATUS", "unknown") or "unknown"
             ),
             model_id=value("QUZHOU_MODEL_ID"),
+            season_pre_sowing_offset_days=int(value("QUZHOU_PRE_SOWING_OFFSET_DAYS", "31") or 31),
+            season_crop_duration_days=int(value("QUZHOU_CROP_DURATION_DAYS", "128") or 128),
+            season_max_duration=int(value("QUZHOU_MAX_DURATION", "400") or 400),
+            weather_timezone=value("QUZHOU_WEATHER_TIMEZONE", "Asia/Shanghai") or "Asia/Shanghai",
+            weather_provider=value("QUZHOU_WEATHER_PROVIDER", "openmeteo") or "openmeteo",
+            forecast_default_days=int(value("QUZHOU_FORECAST_DEFAULT_DAYS", "7") or 7),
+            weather_heavy_rain_mm=float(value("QUZHOU_HEAVY_RAIN_MM", "25") or 25),
+            weather_heat_tmax_c=float(value("QUZHOU_HEAT_TMAX_C", "35") or 35),
+            weather_dry_days=int(value("QUZHOU_DRY_DAYS", "5") or 5),
         )
 
 

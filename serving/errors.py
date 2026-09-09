@@ -90,6 +90,42 @@ class WeatherProviderError(DecisionDomainError):
     code = "WEATHER_PROVIDER_ERROR"
 
 
+class DynamicCalendarInvalidError(DecisionDomainError):
+    code = "DYNAMIC_CALENDAR_INVALID"
+
+
+class ManagementEventInvalidError(DecisionDomainError):
+    code = "MANAGEMENT_EVENT_INVALID"
+
+
+class WeatherProviderNotConfiguredError(WeatherProviderError):
+    code = "WEATHER_PROVIDER_NOT_CONFIGURED"
+
+
+class WeatherDataGapError(WeatherProviderError):
+    code = "WEATHER_DATA_GAP"
+
+
+class WeatherTimelineInvalidError(WeatherProviderError):
+    code = "WEATHER_TIMELINE_INVALID"
+
+
+class ForecastHorizonInsufficientError(WeatherProviderError):
+    code = "FORECAST_HORIZON_INSUFFICIENT"
+
+
+class WeatherLiveQueryDayUnavailableError(WeatherProviderError):
+    code = "WEATHER_LIVE_QUERY_DAY_UNAVAILABLE"
+
+
+class ForwardSimulationError(DecisionDomainError):
+    code = "FORWARD_SIMULATION_ERROR"
+
+
+class ScenarioEvaluationError(DecisionDomainError):
+    code = "SCENARIO_EVALUATION_ERROR"
+
+
 _LEGACY_PREFIXES: tuple[tuple[str, type[DecisionDomainError], str | None], ...] = (
     (
         "INCOMPLETE_MANAGEMENT_HISTORY",
@@ -190,7 +226,7 @@ def serialize_decision_error(
 
     domain_error = as_domain_error(error)
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "request_id": request_id,
         "status": "error",
         "error": domain_error.to_dict(),
@@ -215,6 +251,15 @@ __all__ = [
     "ModelArtifactMissingError",
     "ModelEnvironmentIncompatibleError",
     "WeatherProviderError",
+    "DynamicCalendarInvalidError",
+    "ManagementEventInvalidError",
+    "WeatherProviderNotConfiguredError",
+    "WeatherDataGapError",
+    "WeatherTimelineInvalidError",
+    "ForecastHorizonInsufficientError",
+    "WeatherLiveQueryDayUnavailableError",
+    "ForwardSimulationError",
+    "ScenarioEvaluationError",
     "as_domain_error",
     "serialize_decision_error",
 ]
