@@ -77,6 +77,12 @@ def _empty_audit(mode: str) -> dict[str, Any]:
         "not_applied": [],
         "applied_to_policy": False,
         "applied_to_wofost_state": False,
+        # Keep simulated model values and policy-input overrides separate.
+        # This is deliberately Level 1 metadata; no WOFOST state is changed.
+        "simulated": {},
+        "observed": {},
+        "policy_input": {},
+        "warnings": [],
     }
 
 
@@ -179,6 +185,12 @@ class ObservationFusionEngine:
             model_value = float(corrected[LAI_FEATURE_INDEX])
             observed_value = float(crop.lai)
             corrected[LAI_FEATURE_INDEX] = observed_value
+            audit["simulated"][LAI_FEATURE_NAME] = model_value
+            audit["observed"][LAI_FEATURE_NAME] = observed_value
+            audit["policy_input"][LAI_FEATURE_NAME] = observed_value
+            audit["warnings"].append(
+                "Observed LAI modifies RL policy input only; WOFOST forecast state is not assimilated."
+            )
             audit["applied"].append(
                 {
                     "canonical_field": "observations.crop.lai",
@@ -218,6 +230,9 @@ class ObservationFusionEngine:
                 if status == READY_FOR_DECISION_OVERRIDE and derived_value is not None:
                     model_value = float(corrected[feature_index])
                     corrected[feature_index] = derived_value
+                    audit["simulated"][feature_name] = model_value
+                    audit["observed"][feature_name] = float(derived_value)
+                    audit["policy_input"][feature_name] = float(derived_value)
                     density_sources = sorted({
                         item["bulk_density_source"]
                         for item in feature_audit

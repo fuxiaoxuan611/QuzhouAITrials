@@ -85,6 +85,19 @@ from .soil_observation import (
     mg_n_kg_to_kg_ha,
     volumetric_water_to_cm_water,
 )
+from .agronomic_critic import (
+    CRITIC_CONFIDENCE_LEVELS,
+    CRITIC_EXECUTION_STATUSES,
+    CRITIC_OUTPUT_FIELDS,
+    CRITIC_VERDICTS,
+    RL_N_RATES_KG_HA,
+    CriticValidationError,
+    critic_validation_fallback,
+    prepare_critic_input,
+    validate_rl_candidate_n_rate,
+    validate_critic_output,
+    validate_or_fallback,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -170,4 +183,15 @@ __all__ = [
     "SoilObservationError",
     "mg_n_kg_to_kg_ha",
     "volumetric_water_to_cm_water",
+    "CRITIC_CONFIDENCE_LEVELS",
+    "CRITIC_EXECUTION_STATUSES",
+    "CRITIC_OUTPUT_FIELDS",
+    "CRITIC_VERDICTS",
+    "RL_N_RATES_KG_HA",
+    "CriticValidationError",
+    "critic_validation_fallback",
+    "prepare_critic_input",
+    "validate_rl_candidate_n_rate",
+    "validate_critic_output",
+    "validate_or_fallback",
 ]

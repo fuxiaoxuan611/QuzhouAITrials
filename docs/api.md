@@ -13,6 +13,7 @@ prediction, or decision-calendar logic.
 | GET | `/readyz` | Decision engine was loaded successfully. |
 | GET | `/v1/capabilities` | Schema capabilities and safe service/model metadata. |
 | POST | `/v1/decision` | Canonical schema v1 request to `DecisionEngine.decide()`. |
+| POST | `/v1/critic/validate` | Deterministically validate external LLM Agronomic Critic output. |
 | POST | `/v1/weather/context` | Weather-only historical/forecast context for a FastGPT weather tool. |
 
 `POST /v1/decision` accepts the same top-level canonical field names as
@@ -26,6 +27,19 @@ WOFOST forecast endpoint (seven days by default), while each
 `scenario_evaluation[].horizon_date` may be later so every generated future
 management event is included and has at least one post-event simulation day.
 Future weather is never inserted into the current RL policy observation.
+
+At a decision boundary, the additive `critic_input` field is prepared for an
+external FastGPT/LLM agronomic critic. It keeps the WOFOST simulated state and
+the Level 1 `observation_fusion` policy-input override separate. The local API
+does not call the LLM or apply critic output; a downstream workflow must
+validate the four-verdict critic contract before fertilizer conversion.
+
+FastGPT is responsible for calling the LLM Critic and sending its JSON to
+`POST /v1/critic/validate`. Python is authoritative for deciding whether that
+output is legal. Invalid critic output receives a safe RL-candidate-preserving
+fallback and a non-empty `validation_errors` list; an invalid upstream RL
+candidate is rejected as a request error. This endpoint is stateless and does
+not require the WOFOST/RL engine to be ready.
 
 `POST /v1/weather/context` accepts `location`, `query_date`, optional
 `sowing_date`, `forecast_horizon_days`, `decision_mode`, `provider`, and

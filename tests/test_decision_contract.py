@@ -135,6 +135,29 @@ class TestDecisionContract(unittest.TestCase):
         self.assertEqual(result["action_application_date"], "2025-07-21")
         self.assertEqual(result["model_metadata"]["validation_status"], "engineering_only")
         self.assertFalse(result["model_metadata"]["validated_for_agronomic_recommendation"])
+        self.assertEqual(result["critic_input"]["query_date"], "2025-07-14")
+        self.assertEqual(
+            result["critic_input"]["rl_candidate_action"],
+            {"action_index": 3, "n_rate_kg_ha": 30.0},
+        )
+
+    def test_critic_input_keeps_lai_observation_semantics_separate(self):
+        payload = canonical_payload(
+            observations={
+                "observation_date": "2025-07-14",
+                "source": "field_measurement",
+                "crop": {"lai": 1.6},
+                "soil": [],
+            }
+        )
+        result = fake_engine().decide(payload)
+        critic_input = result["critic_input"]
+        self.assertEqual(
+            critic_input["user_observations"]["observation_snapshot"]["crop"]["lai"],
+            1.6,
+        )
+        self.assertEqual(critic_input["wofost_simulated_state"]["LAI"], 1.483216)
+        self.assertFalse(critic_input["observation_fusion"]["wofost_state_mutated"])
 
     def test_non_boundary_has_fixed_keys_and_no_recommendation(self):
         result = fake_engine().decide(canonical_payload("2025-07-17"))

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .decision_contract import build_decision_result
+from .agronomic_critic import prepare_critic_input
 from .errors import (
     DecisionEngineError,
     RequestValidationError,
@@ -291,6 +292,36 @@ class DecisionEngine:
             }
         )
 
+        critic_input = prepare_critic_input(
+            query_date=canonical.query_date,
+            decision_date=slot.observation_date if slot else None,
+            projected_application_date=slot.action_application_date if slot else None,
+            simulated_state=reconstructed["crop_state"],
+            observation_fusion=observation_fusion,
+            user_observations={
+                "user_query": canonical.request.user_query,
+                "observation_snapshot": (
+                    None
+                    if canonical.observations is None
+                    else canonical.observations.to_dict()
+                ),
+            },
+            rl_candidate_action=(
+                recommendation["action_index"] if recommendation else None
+            ),
+            rl_candidate_n_rate_kg_ha=(
+                recommendation["n_rate_kg_ha"] if recommendation else None
+            ),
+            fertilization_history=[
+                event.to_dict() for event in canonical.management.fertilization_history
+            ],
+            irrigation_history=[
+                event.to_dict() for event in canonical.management.irrigation_history
+            ],
+            weather_risk=[],
+            decision_due=decision_due,
+        )
+
         result = build_decision_result(
             request_id=canonical.request.request_id,
             decision_due=decision_due,
@@ -326,6 +357,7 @@ class DecisionEngine:
             },
             model_metadata=metadata,
             warnings=warnings,
+            critic_input=critic_input,
         )
         # Compatibility aliases are retained for the already-tested local
         # pipeline; the keys above are the frozen v1 contract source of truth.
@@ -563,6 +595,53 @@ class DecisionEngine:
             })
             if canonical.decision_context.allow_irrigation_decision:
                 warnings.append("irrigation_policy_not_implemented")
+            critic_candidate = projected or recommendation
+            critic_input = prepare_critic_input(
+                query_date=canonical.query_date,
+                decision_date=(
+                    slot.observation_date
+                    if slot is not None
+                    else following.observation_date
+                    if projected is not None and following is not None
+                    else None
+                ),
+                projected_application_date=(
+                    slot.action_application_date
+                    if slot is not None
+                    else following.action_application_date
+                    if projected is not None and following is not None
+                    else None
+                ),
+                simulated_state=reconstructed["crop_state"],
+                observation_fusion=fusion["audit"],
+                user_observations={
+                    "user_query": canonical.request.user_query,
+                    "observation_snapshot": (
+                        None
+                        if canonical.observations is None
+                        else canonical.observations.to_dict()
+                    ),
+                },
+                rl_candidate_action=(
+                    critic_candidate["action_index"]
+                    if critic_candidate is not None
+                    else None
+                ),
+                rl_candidate_n_rate_kg_ha=(
+                    critic_candidate["n_rate_kg_ha"]
+                    if critic_candidate is not None
+                    else None
+                ),
+                fertilization_history=[
+                    event.to_dict() for event in canonical.management.fertilization_history
+                ],
+                irrigation_history=[
+                    event.to_dict() for event in canonical.management.irrigation_history
+                ],
+                weather_risk=weather_risk,
+                forecast=forecast,
+                decision_due=slot is not None,
+            )
             result = build_decision_result(
                 request_id=canonical.request.request_id,
                 decision_due=slot is not None,
@@ -589,6 +668,7 @@ class DecisionEngine:
                 scenario_evaluation=scenario_evaluation,
                 weather_risk=weather_risk,
                 operation_advice=advice,
+                critic_input=critic_input,
             )
             result["constraint_violation"] = bool(recommendation and recommendation["constraint_violation"])
             result["current_state"] = result["model_state"]

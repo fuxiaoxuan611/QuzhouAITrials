@@ -38,6 +38,7 @@ DECISION_RESULT_TOP_LEVEL_KEYS = (
     "scenario_evaluation",
     "weather_risk",
     "operation_advice",
+    "critic_input",
 )
 
 
@@ -137,6 +138,7 @@ def build_decision_result(
     scenario_evaluation: list[Any] | None = None,
     weather_risk: list[Any] | None = None,
     operation_advice: dict[str, Any] | None = None,
+    critic_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construct a stable successful result with all v1 core keys."""
 
@@ -167,6 +169,9 @@ def build_decision_result(
         "scenario_evaluation": list(scenario_evaluation or []),
         "weather_risk": list(weather_risk or []),
         "operation_advice": operation_advice,
+        # Additive, JSON-safe input prepared for an external LLM critic. It
+        # does not invoke the LLM or alter the current recommendation.
+        "critic_input": critic_input,
     }
     return json_safe(result)
 

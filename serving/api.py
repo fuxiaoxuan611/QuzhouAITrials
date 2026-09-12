@@ -17,7 +17,18 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError as FastAPIRequestValidationError
 from fastapi.responses import JSONResponse
 
-from .api_models import CanonicalDecisionRequestModel, WeatherContextRequestModel
+from .api_models import (
+    CanonicalDecisionRequestModel,
+    CriticValidationRequestModel,
+    CriticValidationResponseModel,
+    WeatherContextRequestModel,
+)
+from .agronomic_critic import (
+    CriticValidationError,
+    critic_validation_fallback,
+    validate_critic_output,
+    validate_rl_candidate_n_rate,
+)
 from .decision_contract import (
     DECISION_RESULT_SCHEMA_VERSION,
     json_safe,
@@ -315,6 +326,56 @@ def create_app(
                 logger.exception("Unexpected decision service failure")
                 return _internal_error(request_id)
         return JSONResponse(status_code=200, content=json_safe(result), headers=_header(request_id))
+
+    @app.post(
+        "/v1/critic/validate",
+        response_model=CriticValidationResponseModel,
+    )
+    def validate_critic(payload: CriticValidationRequestModel):
+        """Validate an external LLM critic without invoking model code."""
+
+        try:
+            candidate = validate_rl_candidate_n_rate(payload.rl_candidate_n_kg_ha)
+        except CriticValidationError as exc:
+            # An invalid upstream RL candidate has no safe candidate-preserving
+            # fallback, so it is a request error rather than a critic fallback.
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "validation_passed": False,
+                    "critic_validation_failed": True,
+                    "verdict": "REJECT",
+                    "rl_candidate_n_kg_ha": payload.rl_candidate_n_kg_ha,
+                    "final_n_kg_ha": 0.0,
+                    "execution_status": "reject",
+                    "reason_codes": ["INVALID_RL_CANDIDATE"],
+                    "reasons": ["The RL candidate is not a legal action-space rate."],
+                    "confidence": "low",
+                    "validation_errors": [str(exc)],
+                },
+            )
+
+        try:
+            validated = validate_critic_output(
+                payload.critic_output,
+                rl_candidate_n_rate_kg_ha=candidate,
+            )
+            response = {
+                "validation_passed": True,
+                **validated,
+                "validation_errors": [],
+            }
+        except CriticValidationError as exc:
+            fallback = critic_validation_fallback(
+                candidate,
+                reason="Invalid critic output; fallback to RL candidate.",
+            )
+            response = {
+                "validation_passed": False,
+                **fallback,
+                "validation_errors": [str(exc)],
+            }
+        return response
 
     @app.post("/v1/weather/context")
     def weather_context(payload: WeatherContextRequestModel, request: Request):

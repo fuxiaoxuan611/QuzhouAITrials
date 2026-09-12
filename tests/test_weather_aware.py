@@ -105,6 +105,7 @@ class TestWeatherServiceBoundaries(unittest.TestCase):
             query_date=self.query,
             forecast_horizon_days=2,
             decision_mode="live",
+            today=self.query,
         )
         self.assertIn(("historical", self.campaign, self.query - timedelta(days=1)), provider.calls)
         self.assertIn(("forecast", self.query, self.query + timedelta(days=2)), provider.calls)
@@ -121,6 +122,7 @@ class TestWeatherServiceBoundaries(unittest.TestCase):
                 query_date=self.query,
                 forecast_horizon_days=0,
                 decision_mode="live",
+                today=self.query,
             )
         self.assertIn(("historical", self.campaign, self.query - timedelta(days=1)), provider.calls)
         self.assertFalse(any(call[0] == "forecast" for call in provider.calls))
@@ -132,6 +134,7 @@ class TestWeatherServiceBoundaries(unittest.TestCase):
             query_date=self.query,
             forecast_horizon_days=0,
             decision_mode="live",
+            today=self.query,
         )
         self.assertIn(("recent", self.campaign, self.query), provider.calls)
         self.assertFalse(any(call[0] == "historical" for call in provider.calls))
@@ -144,11 +147,53 @@ class TestWeatherServiceBoundaries(unittest.TestCase):
             query_date=self.query,
             forecast_horizon_days=2,
             decision_mode="historical_replay",
+            today=date(2026, 6, 30),
         )
-        self.assertIn(("historical", self.campaign, self.query), provider.calls)
-        self.assertIn(("forecast", self.query + timedelta(days=1), self.query + timedelta(days=2)), provider.calls)
+        self.assertIn(("historical", self.campaign, self.query + timedelta(days=2)), provider.calls)
+        self.assertFalse(any(call[0] == "forecast" for call in provider.calls))
         self.assertEqual(result["historical"]["coverage_end"], "2026-06-10")
         self.assertEqual(result["forecast"]["coverage_start"], "2026-06-11")
+        self.assertTrue(
+            all(record["data_kind"] == "historical" for record in result["forecast"]["records"])
+        )
+
+    def test_historical_replay_uses_archive_for_past_query_and_horizon(self):
+        provider = RecordingProvider()
+        result = self.service(provider).get_context(
+            campaign_start=self.campaign,
+            query_date=date(2026, 6, 16),
+            forecast_horizon_days=7,
+            decision_mode="historical_replay",
+            today=date(2026, 9, 13),
+        )
+        self.assertIn(("historical", self.campaign, date(2026, 6, 23)), provider.calls)
+        self.assertFalse(any(call[0] == "forecast" for call in provider.calls))
+        self.assertEqual(result["historical"]["coverage_end"], "2026-06-16")
+        self.assertEqual(result["forecast"]["coverage_start"], "2026-06-17")
+        self.assertEqual(result["forecast"]["coverage_end"], "2026-06-23")
+        self.assertTrue(
+            all(record["data_kind"] == "historical" for record in result["forecast"]["records"])
+        )
+
+    def test_historical_replay_splits_archive_and_forecast_at_real_today(self):
+        provider = RecordingProvider()
+        result = self.service(provider).get_context(
+            campaign_start=date(2026, 9, 10),
+            query_date=date(2026, 9, 10),
+            forecast_horizon_days=4,
+            decision_mode="historical_replay",
+            today=date(2026, 9, 12),
+        )
+        self.assertIn(("historical", date(2026, 9, 10), date(2026, 9, 11)), provider.calls)
+        self.assertIn(("forecast", date(2026, 9, 12), date(2026, 9, 14)), provider.calls)
+        self.assertEqual(
+            [record.date.isoformat() for record in result["timeline"]],
+            ["2026-09-10", "2026-09-11", "2026-09-12", "2026-09-13", "2026-09-14"],
+        )
+        self.assertEqual(
+            [record["data_kind"] for record in result["forecast"]["records"]],
+            ["historical", "forecast", "forecast", "forecast"],
+        )
 
     def test_live_query_day_duplicate_is_rejected(self):
         builder = HistoricalForecastTimelineBuilder()

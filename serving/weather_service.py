@@ -282,8 +282,9 @@ class WeatherService:
             raise WeatherProviderNotConfiguredError(f"weather provider is not configured: {selected_name}")
         provider = self.providers.get(selected_name)
         mode = decision_mode
+        reference_today = today or datetime.now().date()
         if mode == "auto":
-            mode = "live" if query == (today or datetime.now().date()) else "historical_replay"
+            mode = "live" if query == reference_today else "historical_replay"
         end = query + timedelta(days=horizon)
         warnings: list[str] = []
         actual_provider_names: list[str] = []
@@ -333,6 +334,11 @@ class WeatherService:
             from .errors import WeatherProviderNotConfiguredError
             raise WeatherProviderNotConfiguredError(f"weather provider is not configured: {selected_name}")
 
+        # Provider selection is based on the real current date, not on whether
+        # a date is future relative to a simulated historical query.  A
+        # historical replay may therefore place archive records after its
+        # query date into the timeline's future bucket without relabelling
+        # them as forecasts.
         query_day_records: tuple[WeatherRecord, ...] = ()
         if historical is None:
             has_recent_provider = any(
@@ -341,22 +347,25 @@ class WeatherService:
             )
             if mode == "live" and has_recent_provider:
                 recent_values_all = fetch_with_fallback("recent", campaign, query)
-                historical_values = tuple(item for item in recent_values_all if item.date < query)
-                query_day_records = tuple(item for item in recent_values_all if item.date == query)
+                historical_source_values = tuple(
+                    item for item in recent_values_all if item.date < query
+                )
+                query_day_records = tuple(
+                    item for item in recent_values_all if item.date == query
+                )
             else:
-                # Archive/reanalysis data may be used for the completed days
-                # before a live query, but never for the query day itself.
-                historical_end = query - timedelta(days=1) if mode == "live" else query
-                historical_values = (
+                historical_end = min(end, reference_today - timedelta(days=1))
+                historical_source_values = (
                     fetch_with_fallback("historical", campaign, historical_end)
-                    if any(
+                    if historical_end >= campaign
+                    and any(
                         getattr(self.providers.get(name), "supports_historical", False)
                         for name in (selected_name, *self.fallback_provider_names)
                     )
                     else ()
                 )
         else:
-            historical_values = _coerce_records(historical)
+            historical_source_values = _coerce_records(historical)
         if recent is None:
             recent_values = query_day_records
         else:
@@ -366,19 +375,30 @@ class WeatherService:
                 getattr(self.providers.get(name), "supports_forecast", False)
                 for name in (selected_name, *self.fallback_provider_names)
             )
-            if not has_forecast_provider:
-                forecast_values = ()
-            elif mode == "live":
-                # A live query needs a safe query-day estimate.  The forecast
-                # endpoint is allowed to provide that daily value, including
-                # when horizon is zero.
-                forecast_values = fetch_with_fallback("forecast", query, end)
-            elif horizon == 0:
-                forecast_values = ()
-            else:
-                forecast_values = fetch_with_fallback("forecast", query + timedelta(days=1), end)
+            forecast_start = max(campaign, reference_today)
+            forecast_source_values = (
+                fetch_with_fallback("forecast", forecast_start, end)
+                if has_forecast_provider and end >= forecast_start
+                else ()
+            )
         else:
-            forecast_values = _coerce_records(forecast)
+            forecast_source_values = _coerce_records(forecast)
+
+        source_values = (*historical_source_values, *forecast_source_values)
+        if mode in {"historical_replay", "simulation"}:
+            historical_values = tuple(
+                item for item in source_values if campaign <= item.date <= query
+            )
+            forecast_values = tuple(
+                item for item in source_values if query < item.date <= end
+            )
+        else:
+            historical_values = tuple(
+                item for item in source_values if campaign <= item.date < query
+            )
+            forecast_values = tuple(
+                item for item in source_values if query <= item.date <= end
+            )
         if mode == "live":
             query_candidates = tuple(
                 item for item in (*recent_values, *forecast_values) if item.date == query
@@ -399,7 +419,7 @@ class WeatherService:
             historical=historical_values,
             recent=recent_values,
             forecast=forecast_values,
-            today=today,
+            today=reference_today,
         )
         historical_selected = tuple(item for item in timeline if item.date <= query and item.data_kind in {WeatherDataKind.HISTORICAL, WeatherDataKind.OBSERVED})
         forecast_selected = tuple(item for item in timeline if item.date > query or (mode == "live" and item.date == query))

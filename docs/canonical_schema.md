@@ -103,6 +103,15 @@ replaces index 6 before VecNormalize and policy inference. This is a
 policy-observation override only; the WOFOST/PCSE state is never mutated.
 Older or future-dated observations are not silently applied.
 
+The returned `observation_fusion` audit keeps three meanings distinct:
+`simulated` is the raw WOFOST-derived value, `observed` is the accepted
+canonical measurement, and `policy_input` is the value passed to the RL
+normalization/policy path. `wofost_state_mutated` and
+`applied_to_wofost_state` remain false for this Level 1 implementation.
+The API may additionally expose a JSON-safe `critic_input` handoff for an
+external agronomic critic; it must not describe a policy input override as a
+corrected WOFOST state.
+
 The current `observations.soil` array is preserved by the schema. The
 `serving.soil_observation.SoilObservationAdapter` maps its depth intervals to
 the authoritative CN-Maize model layers by geometric overlap. It does not

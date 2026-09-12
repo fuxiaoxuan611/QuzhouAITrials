@@ -35,6 +35,7 @@ projected_next_decision
 scenario_evaluation
 weather_risk
 operation_advice
+critic_input
 ```
 
 Dates have distinct meanings. `state_date` is the reconstructed WOFOST state;
@@ -185,6 +186,11 @@ Stable codes are:
 | `MANAGEMENT_EVENT_INVALID` | A date-based management event is invalid. |
 | `FORWARD_SIMULATION_ERROR` / `SCENARIO_EVALUATION_ERROR` | Isolated future simulation failed. |
 | `DECISION_ENGINE_ERROR` | Other decision-engine-owned failure. |
+
+The additive `critic_input` field is a JSON-safe handoff for an external
+FastGPT/LLM agronomic critic. It does not call the LLM. The critic output must
+be checked with the deterministic rules in
+[`agronomic_critic.md`](agronomic_critic.md) before any fertilizer conversion.
 
 Unknown programmer/system exceptions are not caught by `DecisionEngine.decide`
 and should be mapped by a future API layer to an internal server error rather
